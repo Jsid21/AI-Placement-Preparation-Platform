@@ -1,0 +1,8 @@
+streamlit
+google-generativeai
+PyPDF2
+streamlit-webrtc 
+openai-whisper
+python-dotenv
+aioice
+aiortc
