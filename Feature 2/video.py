@@ -110,11 +110,16 @@
 
 # --------------------------------------------------------------------------------------------------------------- #
 
+from fastapi import FastAPI, UploadFile, File
 import cv2
 import mediapipe as mp
 import numpy as np
 from deepface import DeepFace
 import time
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+app = FastAPI()
 
 # Initialize MediaPipe Face Mesh
 mp_face_mesh = mp.solutions.face_mesh
@@ -124,7 +129,7 @@ face_mesh = mp_face_mesh.FaceMesh(
     refine_landmarks=True
 )
 
-# Indices for eye landmarks (these are sample indices; adjust if necessary)
+# Indices for eye landmarks
 LEFT_EYE = [362, 385, 387, 263]
 RIGHT_EYE = [33, 160, 158, 133]
 
@@ -143,36 +148,57 @@ last_state = {
 }
 last_switch_time = time.time()
 
-# Function to check head movement based on nose tip position
+# Utility Functions
+def format_time(seconds):
+    return time.strftime('%H:%M:%S', time.gmtime(seconds))
+
+def update_timers(current_eye_state, current_head_state):
+    global last_switch_time, last_state
+    now = time.time()
+
+    state_timers[last_state['eye']] += now - last_switch_time
+    state_timers[last_state['head']] += now - last_switch_time
+
+    last_switch_time = now
+    last_state['eye'] = current_eye_state
+    last_state['head'] = current_head_state
+
+def generate_report():
+    report = "Interview Monitoring Report\n\n"
+    total_time = time.time() - start_time
+    report += f"Total Time Spent: {format_time(total_time)}\n"
+    for state, duration in state_timers.items():
+        report += f"{state}: {format_time(duration)}\n"
+    return report
+
+# Core Logic
 def check_head_movement(frame):
     image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     results = face_mesh.process(image_rgb)
-    
+
     if results.multi_face_landmarks:
         for face_landmarks in results.multi_face_landmarks:
             nose_tip = face_landmarks.landmark[1]
             x, y = nose_tip.x, nose_tip.y
-            
             if abs(x - 0.5) > 0.15 or abs(y - 0.5) > 0.15:
                 return "Head Not Centered"
             return "Head Centered"
     return "Unable to detect"
 
-# Function to check eye gaze based on eye landmarks
 def check_eye_gaze(frame):
     image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     results = face_mesh.process(image_rgb)
-    
+
     if results.multi_face_landmarks:
         for face_landmarks in results.multi_face_landmarks:
             left_eye_pts = np.array([[face_landmarks.landmark[i].x, face_landmarks.landmark[i].y] for i in LEFT_EYE])
             right_eye_pts = np.array([[face_landmarks.landmark[i].x, face_landmarks.landmark[i].y] for i in RIGHT_EYE])
             left_eye_center = np.mean(left_eye_pts, axis=0)
             right_eye_center = np.mean(right_eye_pts, axis=0)
-            
+
             eye_center = (left_eye_center + right_eye_center) / 2
             x, _ = eye_center
-            
+
             if x < 0.45:
                 return "Looking Right"
             elif x > 0.55:
@@ -180,7 +206,6 @@ def check_eye_gaze(frame):
             return "Eyes Focused"
     return "Unable to detect"
 
-# Function for sentiment analysis
 def detect_emotion(frame):
     try:
         result = DeepFace.analyze(frame, actions=['emotion'], enforce_detection=False)
@@ -188,72 +213,30 @@ def detect_emotion(frame):
     except:
         return "Neutral"
 
-# Function to convert seconds to HH:MM:SS
-def format_time(seconds):
-    return time.strftime('%H:%M:%S', time.gmtime(seconds))
+@app.post("/analyze")
+async def analyze_video(file: UploadFile = File(...)):
+    cap = cv2.VideoCapture(file.file.name)
 
-def update_timers(current_eye_state, current_head_state):
-    global last_switch_time, last_state
-    now = time.time()
-    
-    # Update the previous state timers
-    state_timers[last_state['eye']] += now - last_switch_time
-    state_timers[last_state['head']] += now - last_switch_time
-    
-    # Update the last switch time and state
-    last_switch_time = now
-    last_state['eye'] = current_eye_state
-    last_state['head'] = current_head_state
-
-def main():
-    global start_time
-    cap = cv2.VideoCapture(0)
-    
     if not cap.isOpened():
-        print("Error: Could not open webcam.")
-        return
-    
-    print("Webcam opened successfully. Press 'q' to exit.")
-    cv2.namedWindow("Interview Monitoring", cv2.WINDOW_NORMAL)
+        return JSONResponse(content={"error": "Could not open video file."}, status_code=400)
 
     while True:
         ret, frame = cap.read()
         if not ret:
-            print("Failed to grab frame")
             break
 
-        current_time = time.time() - start_time
         eye_status = check_eye_gaze(frame)
         head_status = check_head_movement(frame)
         emotion_status = detect_emotion(frame)
 
-        # Update timers for active states
         update_timers(eye_status, head_status)
 
-        # Overlay information on the webcam feed
-        cv2.putText(frame, f"Total Time: {format_time(current_time)}", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-        cv2.putText(frame, f"Eyes: {eye_status}", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-        cv2.putText(frame, f"Head: {head_status}", (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-        cv2.putText(frame, f"Emotion: {emotion_status}", (50, 200), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
-
-        # Display the processed frame
-        cv2.imshow("Interview Monitoring", frame)
-        
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-
-    # Final timer update before closing
-    update_timers(last_state['eye'], last_state['head'])
-
-    # Show the final statistics
-    print(f"\nTotal Time Spent: {format_time(current_time)}")
-    for state, duration in state_timers.items():
-        print(f"{state}: {format_time(duration)}")
-
-    # Release resources
     cap.release()
-    cv2.destroyAllWindows()
-    print("Application closed")
 
-if __name__ == "__main__":
-    main()
+    # Generate report
+    report = generate_report()
+    return JSONResponse(content={"report": report})
+
+@app.get("/report")
+async def get_report():
+    return JSONResponse(content={"report": generate_report()})
