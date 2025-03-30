@@ -12,6 +12,7 @@ import google.generativeai as genai
 import PyPDF2
 from dotenv import load_dotenv
 import re
+from transformers import BertTokenizer, BertForSequenceClassification
 
 warnings.filterwarnings('ignore')
 os.environ['TOKENIZERS_PARALLELISM'] = 'false'
@@ -261,6 +262,20 @@ def verify_groq_connection():
         st.error(f"Error connecting to Groq API: {str(e)}")
         return False
 
+# Function for personality detection
+def personality_detection(text):
+    tokenizer = BertTokenizer.from_pretrained("Minej/bert-base-personality")
+    model = BertForSequenceClassification.from_pretrained("Minej/bert-base-personality")
+
+    inputs = tokenizer(text, truncation=True, padding=True, return_tensors="pt")
+    outputs = model(**inputs)
+    predictions = outputs.logits.squeeze().detach().numpy()
+
+    label_names = ['Extroversion', 'Neuroticism', 'Agreeableness', 'Conscientiousness', 'Openness']
+    result = {label_names[i]: predictions[i] for i in range(len(label_names))}
+
+    return result
+
 st.set_page_config(page_title="Speech Feedback App", page_icon="🎤", layout="wide")
 
 @st.cache_resource
@@ -348,12 +363,16 @@ def analyze_audio(uploaded_file):
         # Calculate average pitch for reference
         avg_pitch = np.mean([s['pitch'] for s in segments]) if segments else 0
 
+        # Perform personality detection on transcription
+        personality_scores = personality_detection(transcription)
+
         speech_metrics = {
             'segments': segments,
             'pauses': pauses,
             'average_pitch': avg_pitch,
             'pause_count': len(pauses),
-            'average_pause_duration': np.mean(pauses) if pauses else 0
+            'average_pause_duration': np.mean(pauses) if pauses else 0,
+            'personality_scores': personality_scores
         }
 
         return transcription, speech_metrics
@@ -396,13 +415,17 @@ def generate_feedback(transcription, speech_metrics):
         variation = ((segment['pitch'] - speech_metrics['average_pitch']) / speech_metrics['average_pitch']) * 100
         pitch_variations.append(variation)
 
-    prompt = f"""Analyze the provided speech transcription and voice metrics. Deliver concise, structured feedback addressing:
+    # Format personality scores for the prompt
+    personality_analysis = "\n".join([f"- {trait}: {score:.2f}" for trait, score in speech_metrics['personality_scores'].items()])
+
+    prompt = f"""Analyze the provided speech transcription, voice metrics, and personality traits. Deliver concise, structured feedback addressing:
 
 1. **Voice Quality:** Comment briefly on overall clarity and consistency of voice.
 2. **Pitch Modulation:** Evaluate the appropriateness and variation of pitch.
 3. **Pacing & Pauses:** Assess the number and duration of pauses—highlight if pacing enhances or disrupts delivery.
 4. **Content Clarity:** Quickly note if content structure and message clarity were effective.
-5. **Improvement Suggestions:** Provide clear, actionable recommendations focusing specifically on pitch and pause management.
+5. **Personality Traits:** Analyze how the detected personality traits may influence communication style and effectiveness.
+6. **Improvement Suggestions:** Provide clear, actionable recommendations focusing specifically on pitch, pause management, and personality-based communication strategies.
 
 Speech Analysis Data:
 - Transcription: {transcription}
@@ -410,6 +433,9 @@ Speech Analysis Data:
 - Total Pauses: {speech_metrics['pause_count']}
 - Average Pause Duration: {speech_metrics['average_pause_duration']} seconds
 - Pitch Variation: from {min(pitch_variations):.1f}% to {max(pitch_variations):.1f}% compared to the average.
+
+Personality Traits:
+{personality_analysis}
 
 Format your response clearly, succinctly, and in easily readable bullet points. Keep feedback professional, specific, and positive in tone.
 """
@@ -420,7 +446,7 @@ Format your response clearly, succinctly, and in easily readable bullet points. 
             messages=[
                 {
                     "role": "system",
-                    "content": "You are an experienced professional speech coach providing concise, structured, and actionable feedback. Your responses must be brief, specific, and supportive. Focus explicitly on the speaker's voice modulation, pitch consistency, use of pauses, content clarity, and overall delivery effectiveness. Provide clear recommendations for improvement, formatted into distinct bullet points, without unnecessary elaboration."
+                    "content": "You are an experienced professional speech coach providing concise, structured, and actionable feedback. Your responses must be brief, specific, and supportive. Focus explicitly on the speaker's voice modulation, pitch consistency, use of pauses, content clarity, personality traits, and overall delivery effectiveness. Provide clear recommendations for improvement, formatted into distinct bullet points, without unnecessary elaboration."
                 },
                 {
                     "role": "user",
@@ -647,6 +673,14 @@ def main():
                                     with col3:
                                         st.metric("📝 Word Count", str(len(transcription.split())))
                                     
+                                    # Display Personality Traits
+                                    st.markdown('<div class="feedback-container">', unsafe_allow_html=True)
+                                    st.subheader("👤 Personality Traits Analysis")
+                                    personality_scores = speech_metrics['personality_scores']
+                                    for trait, score in personality_scores.items():
+                                        st.metric(trait, f"{score:.2f}")
+                                    st.markdown('</div>', unsafe_allow_html=True)
+                                    
                                     # Display Pitch Graph
                                     st.subheader("Pitch Variation")
                                     pitch_data = [segment['pitch'] for segment in speech_metrics['segments']]
@@ -717,6 +751,14 @@ def main():
                         st.markdown('<div class="metric-container">', unsafe_allow_html=True)
                         st.metric("📝 Word Count", str(len(transcription.split())))
                         st.markdown('</div>', unsafe_allow_html=True)
+
+                    # Display Personality Traits
+                    st.markdown('<div class="feedback-container">', unsafe_allow_html=True)
+                    st.subheader("👤 Personality Traits Analysis")
+                    personality_scores = speech_metrics['personality_scores']
+                    for trait, score in personality_scores.items():
+                        st.metric(trait, f"{score:.2f}")
+                    st.markdown('</div>', unsafe_allow_html=True)
 
                     # Display Pitch Variation Graph
                     st.markdown('<div class="feedback-container">', unsafe_allow_html=True)
