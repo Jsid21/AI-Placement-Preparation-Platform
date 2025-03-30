@@ -271,8 +271,17 @@ def personality_detection(text):
     outputs = model(**inputs)
     predictions = outputs.logits.squeeze().detach().numpy()
 
+    # Apply sigmoid function to convert logits to probabilities between 0 and 1
+    def sigmoid(x):
+        return 1 / (1 + np.exp(-x))
+    
+    predictions = sigmoid(predictions)
+    
+    # Scale to 0-100 range for better readability
+    predictions = predictions * 100
+
     label_names = ['Extroversion', 'Neuroticism', 'Agreeableness', 'Conscientiousness', 'Openness']
-    result = {label_names[i]: predictions[i] for i in range(len(label_names))}
+    result = {label_names[i]: float(predictions[i]) for i in range(len(label_names))}
 
     return result
 
