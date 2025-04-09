@@ -23,26 +23,17 @@ export function Navbar() {
             <Link href="/" className="text-sm font-medium text-gray-300 transition-colors hover:text-lime-400">
               Home
             </Link>
+            <Link href="/interview" className="text-sm font-medium text-gray-300 transition-colors hover:text-lime-400">
+              Practice Interview
+            </Link>
+            <Link href="/flashcards" className="text-sm font-medium text-gray-300 transition-colors hover:text-lime-400">
+              Flashcards
+            </Link>
+            <Link href="/aptitude" className="text-sm font-medium text-gray-300 transition-colors hover:text-lime-400">
+              Aptitude
+            </Link>
             <Link href="/flow" className="text-sm font-medium text-gray-300 transition-colors hover:text-lime-400">
               Feature Flow
-            </Link>
-            <Link
-              href="/features/document-processing"
-              className="text-sm font-medium text-gray-300 transition-colors hover:text-lime-400"
-            >
-              Document Processing
-            </Link>
-            <Link
-              href="/features/computer-vision"
-              className="text-sm font-medium text-gray-300 transition-colors hover:text-lime-400"
-            >
-              Computer Vision
-            </Link>
-            <Link
-              href="/features/speech-recognition"
-              className="text-sm font-medium text-gray-300 transition-colors hover:text-lime-400"
-            >
-              Speech Recognition
             </Link>
           </nav>
 
@@ -80,32 +71,32 @@ export function Navbar() {
               Home
             </Link>
             <Link
+              href="/interview"
+              className="block text-sm font-medium text-gray-300 transition-colors hover:text-lime-400"
+              onClick={() => setIsMenuOpen(false)}
+            >
+              Practice Interview
+            </Link>
+            <Link
+              href="/flashcards"
+              className="block text-sm font-medium text-gray-300 transition-colors hover:text-lime-400"
+              onClick={() => setIsMenuOpen(false)}
+            >
+              Flashcards
+            </Link>
+            <Link
+              href="/aptitude"
+              className="block text-sm font-medium text-gray-300 transition-colors hover:text-lime-400"
+              onClick={() => setIsMenuOpen(false)}
+            >
+              Aptitude
+            </Link>
+            <Link
               href="/flow"
               className="block text-sm font-medium text-gray-300 transition-colors hover:text-lime-400"
               onClick={() => setIsMenuOpen(false)}
             >
               Feature Flow
-            </Link>
-            <Link
-              href="/features/document-processing"
-              className="block text-sm font-medium text-gray-300 transition-colors hover:text-lime-400"
-              onClick={() => setIsMenuOpen(false)}
-            >
-              Document Processing
-            </Link>
-            <Link
-              href="/features/computer-vision"
-              className="block text-sm font-medium text-gray-300 transition-colors hover:text-lime-400"
-              onClick={() => setIsMenuOpen(false)}
-            >
-              Computer Vision
-            </Link>
-            <Link
-              href="/features/speech-recognition"
-              className="block text-sm font-medium text-gray-300 transition-colors hover:text-lime-400"
-              onClick={() => setIsMenuOpen(false)}
-            >
-              Speech Recognition
             </Link>
             <Button
               asChild
