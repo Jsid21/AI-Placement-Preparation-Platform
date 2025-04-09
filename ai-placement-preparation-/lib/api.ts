@@ -1,6 +1,5 @@
 export interface InterviewQuestion {
   text: string;
-  id?: string;
 }
 
 export interface AnalysisMetrics {
@@ -13,15 +12,15 @@ export interface AnalysisMetrics {
 }
 
 export interface SpeechAnalysis {
-  transcribed_text: string;
+  question: string;
+  analysis: string;
   emotions: {
     [key: string]: number;
   };
   dominant_emotion: string;
-  analysis: string;
 }
 
-const API_URLS = {
+const API_BASE_URLS = {
   documentProcessing: 'http://localhost:8000',
   computerVision: 'http://localhost:8001',
   speechAnalysis: 'http://localhost:8002'
@@ -30,8 +29,9 @@ const API_URLS = {
 export async function analyzeResume(file: File): Promise<InterviewQuestion[]> {
   const formData = new FormData();
   formData.append('resume_file', file);
+  formData.append('num_questions', '5');
 
-  const response = await fetch(`${API_URLS.documentProcessing}/generate-questions`, {
+  const response = await fetch(`${API_BASE_URLS.documentProcessing}/generate-questions`, {
     method: 'POST',
     body: formData,
   });
@@ -40,14 +40,15 @@ export async function analyzeResume(file: File): Promise<InterviewQuestion[]> {
     throw new Error('Failed to analyze resume');
   }
 
-  return response.json();
+  const data = await response.json();
+  return data.questions.map((q: string) => ({ text: q }));
 }
 
 export async function analyzeVideo(file: File): Promise<AnalysisMetrics> {
   const formData = new FormData();
   formData.append('file', file);
 
-  const response = await fetch(`${API_URLS.computerVision}/analyze/video`, {
+  const response = await fetch(`${API_BASE_URLS.computerVision}/analyze/video`, {
     method: 'POST',
     body: formData,
   });
@@ -59,21 +60,41 @@ export async function analyzeVideo(file: File): Promise<AnalysisMetrics> {
   return response.json();
 }
 
-export async function analyzeSpeech(
-  file: File, 
-  question: string
-): Promise<SpeechAnalysis> {
+export async function analyzeSpeech(file: File, question: string): Promise<SpeechAnalysis> {
   const formData = new FormData();
-  formData.append('file', file);
+  formData.append('audio_file', file);
+  formData.append('question', question);
 
-  const response = await fetch(`${API_URLS.speechAnalysis}/analyze/audio`, {
+  // First analyze with Feature 1 for question analysis
+  const analysisResponse = await fetch(`${API_BASE_URLS.documentProcessing}/analyze-answer`, {
     method: 'POST',
     body: formData,
   });
 
-  if (!response.ok) {
-    throw new Error('Failed to analyze speech');
+  if (!analysisResponse.ok) {
+    throw new Error('Failed to analyze speech content');
   }
 
-  return response.json();
+  const analysisData = await analysisResponse.json();
+
+  // Then analyze with Feature 3 for emotion analysis
+  formData.set('file', file); // Reset formData with correct field name
+  const emotionResponse = await fetch(`${API_BASE_URLS.speechAnalysis}/analyze/audio`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!emotionResponse.ok) {
+    throw new Error('Failed to analyze speech emotions');
+  }
+
+  const emotionData = await emotionResponse.json();
+
+  // Combine both analyses
+  return {
+    question,
+    analysis: analysisData.analysis,
+    emotions: emotionData.emotions,
+    dominant_emotion: emotionData.dominant_emotion
+  };
 }

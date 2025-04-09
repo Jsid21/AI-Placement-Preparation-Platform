@@ -30,23 +30,37 @@ export default function InterviewPage() {
 
   const handleResumeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     try {
-      const file = e.target.files?.[0]
-      if (!file) return
+      const file = e.target.files?.[0];
+      if (!file) return;
 
-      const questions = await analyzeResume(file)
-      setQuestions(questions)
+      // Show loading toast
+      toast({
+        title: "Analyzing resume...",
+        description: "Please wait while we generate questions",
+      });
+
+      const generatedQuestions = await analyzeResume(file);
+      
+      if (generatedQuestions.length === 0) {
+        throw new Error("No questions were generated");
+      }
+
+      setQuestions(generatedQuestions);
+      setCurrentQuestion(0); // Reset to first question
+      
       toast({
         title: "Resume analyzed",
-        description: `Generated ${questions.length} interview questions`,
-      })
+        description: `Generated ${generatedQuestions.length} interview questions`,
+      });
     } catch (error) {
+      console.error("Resume analysis error:", error);
       toast({
         title: "Error",
-        description: "Failed to analyze resume",
+        description: error instanceof Error ? error.message : "Failed to analyze resume",
         variant: "destructive",
-      })
+      });
     }
-  }
+  };
 
   const startRecording = async () => {
     try {
@@ -86,52 +100,62 @@ export default function InterviewPage() {
   }
 
   const stopRecording = async () => {
-    if (!mediaRecorderRef.current) return
+    if (!mediaRecorderRef.current || !questions[currentQuestion]) return;
+
+    // Show loading toast
+    toast({
+      title: "Processing recording...",
+      description: "Please wait while we analyze your response",
+    });
 
     return new Promise<void>((resolve) => {
-      if (!mediaRecorderRef.current) return
+      if (!mediaRecorderRef.current) return;
 
       mediaRecorderRef.current.onstop = async () => {
         try {
-          const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' })
-          const videoBlob = new Blob(chunksRef.current, { type: 'video/webm' })
+          const audioBlob = new Blob(chunksRef.current, { type: 'audio/wav' });
+          const videoBlob = new Blob(chunksRef.current, { type: 'video/webm' });
 
-          // Analyze both audio and video
           const [speechAnalysis, videoAnalysis] = await Promise.all([
             analyzeSpeech(
-              new File([audioBlob], "answer.webm"),
+              new File([audioBlob], "answer.wav"),
               questions[currentQuestion].text
             ),
             analyzeVideo(new File([videoBlob], "recording.webm"))
-          ])
+          ]);
 
-          setMetrics(videoAnalysis)
+          setMetrics({
+            ...videoAnalysis,
+            emotions: speechAnalysis.emotions
+          });
+
           toast({
             title: "Analysis complete",
-            description: speechAnalysis.analysis,
-          })
+            description: "Your response has been analyzed",
+          });
 
-          // Cleanup
-          audioStream?.getTracks().forEach(track => track.stop())
-          videoStream?.getTracks().forEach(track => track.stop())
-          setAudioStream(null)
-          setVideoStream(null)
-          setIsRecording(false)
+          // Cleanup streams
+          audioStream?.getTracks().forEach(track => track.stop());
+          videoStream?.getTracks().forEach(track => track.stop());
+          setAudioStream(null);
+          setVideoStream(null);
+          setIsRecording(false);
 
-          resolve()
+          resolve();
         } catch (error) {
+          console.error("Analysis error:", error);
           toast({
             title: "Error",
-            description: "Failed to analyze recording",
+            description: error instanceof Error ? error.message : "Failed to analyze recording",
             variant: "destructive",
-          })
-          resolve()
+          });
+          resolve();
         }
-      }
+      };
 
-      mediaRecorderRef.current.stop()
-    })
-  }
+      mediaRecorderRef.current.stop();
+    });
+  };
 
   return (
     <div className="container mx-auto py-8">
@@ -150,7 +174,7 @@ export default function InterviewPage() {
             Upload your resume to generate personalized interview questions
           </p>
         </Card>
-      ) : (
+      ) : questions[currentQuestion] ? ( // Add this check
         <div className="space-y-6">
           <Card className="p-6">
             <h2 className="text-xl font-semibold mb-4">
@@ -226,6 +250,10 @@ export default function InterviewPage() {
             </Card>
           )}
         </div>
+      ) : (
+        <Card className="p-6">
+          <p className="text-lg">No questions available. Please upload your resume.</p>
+        </Card>
       )}
     </div>
   )
