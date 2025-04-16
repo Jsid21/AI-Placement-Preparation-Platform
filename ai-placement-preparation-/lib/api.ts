@@ -1,100 +1,130 @@
+// API client functions for interview practice app
+
 export interface InterviewQuestion {
   text: string;
 }
 
-export interface AnalysisMetrics {
-  eye_contact: number;
-  head_position: number;
-  confidence: number;
-  emotions: {
-    [key: string]: number;
-  };
+export interface PersonalityScore {
+  Extroversion: number;
+  Neuroticism: number;
+  Agreeableness: number;
+  Conscientiousness: number;
+  Openness: number;
+}
+
+export interface SpeechMetrics {
+  average_pitch: number;
+  pause_count: number;
+  average_pause_duration: number;
+  word_count: number;
+  personality_scores: PersonalityScore;
 }
 
 export interface SpeechAnalysis {
-  question: string;
-  analysis: string;
-  emotions: {
-    [key: string]: number;
-  };
-  dominant_emotion: string;
+  transcription: string;
+  metrics: SpeechMetrics;
+  feedback: string;
 }
 
-const API_BASE_URLS = {
-  documentProcessing: 'http://localhost:8000',
-  computerVision: 'http://localhost:8001',
-  speechAnalysis: 'http://localhost:8002'
-};
-
-export async function analyzeResume(file: File): Promise<InterviewQuestion[]> {
+// Function to analyze resume and generate questions
+export async function analyzeResume(file: File, jobDescription?: string): Promise<InterviewQuestion[]> {
   const formData = new FormData();
-  formData.append('resume_file', file);
-  formData.append('num_questions', '5');
+  formData.append("resume_file", file);
+  formData.append("num_questions", "5");
+  
+  if (jobDescription) {
+    formData.append("job_description", jobDescription);
+  }
 
-  const response = await fetch(`${API_BASE_URLS.documentProcessing}/generate-questions`, {
+  try {
+    const response = await fetch('/api/generate-questions/', {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.detail || "Failed to analyze resume");
+    }
+
+    const data = await response.json();
+    return data.questions;
+  } catch (error) {
+    console.error("API Error:", error);
+    throw error;
+  }
+}
+
+// Function to extract text from resume PDF
+export async function extractResumeText(file: File): Promise<string> {
+  const formData = new FormData();
+  formData.append("file", file);
+  
+  const response = await fetch('/api/extract-pdf-text/', {
     method: 'POST',
     body: formData,
   });
-
+  
   if (!response.ok) {
-    throw new Error('Failed to analyze resume');
+    const errorData = await response.json();
+    throw new Error(errorData.detail || "Failed to extract text from resume");
   }
-
+  
   const data = await response.json();
-  return data.questions.map((q: string) => ({ text: q }));
+  return data.text;
 }
 
-export async function analyzeVideo(file: File): Promise<AnalysisMetrics> {
+// Function to analyze recorded answer
+export async function analyzeAnswer(
+  audioBlob: Blob, 
+  question: string, 
+  resumeText?: string, 
+  jobDescription?: string
+): Promise<{contentAnalysis: string, score: number, speechAnalysis: SpeechAnalysis}> {
+  // First analyze the content
   const formData = new FormData();
-  formData.append('file', file);
+  formData.append("audio_file", audioBlob, "answer.wav");
+  formData.append("question", question);
+  
+  if (resumeText) {
+    formData.append("resume_text", resumeText);
+  }
+  
+  if (jobDescription) {
+    formData.append("job_description", jobDescription);
+  }
 
-  const response = await fetch(`${API_BASE_URLS.computerVision}/analyze/video`, {
+  const contentResponse = await fetch('/api/analyze-answer/', {
     method: 'POST',
     body: formData,
   });
 
-  if (!response.ok) {
-    throw new Error('Failed to analyze video');
+  if (!contentResponse.ok) {
+    const errorData = await contentResponse.json();
+    throw new Error(errorData.detail || "Failed to analyze answer content");
   }
 
-  return response.json();
-}
+  const contentData = await contentResponse.json();
 
-export async function analyzeSpeech(file: File, question: string): Promise<SpeechAnalysis> {
-  const formData = new FormData();
-  formData.append('audio_file', file);
-  formData.append('question', question);
+  // Then analyze the speech patterns
+  const speechFormData = new FormData();
+  speechFormData.append("audio_file", audioBlob, "answer.wav");
 
-  // First analyze with Feature 1 for question analysis
-  const analysisResponse = await fetch(`${API_BASE_URLS.documentProcessing}/analyze-answer`, {
+  const speechResponse = await fetch('/api/analyze-speech/', {
     method: 'POST',
-    body: formData,
+    body: speechFormData,
   });
 
-  if (!analysisResponse.ok) {
-    throw new Error('Failed to analyze speech content');
+  if (!speechResponse.ok) {
+    const errorData = await speechResponse.json();
+    throw new Error(errorData.detail || "Failed to analyze speech patterns");
   }
 
-  const analysisData = await analysisResponse.json();
+  const speechData = await speechResponse.json();
 
-  // Then analyze with Feature 3 for emotion analysis
-  formData.set('file', file); // Reset formData with correct field name
-  const emotionResponse = await fetch(`${API_BASE_URLS.speechAnalysis}/analyze/audio`, {
-    method: 'POST',
-    body: formData,
-  });
-
-  if (!emotionResponse.ok) {
-    throw new Error('Failed to analyze speech emotions');
-  }
-
-  const emotionData = await emotionResponse.json();
-
-  // Combine both analyses
   return {
-    question,
-    analysis: analysisData.analysis,
-    emotions: emotionData.emotions,
-    dominant_emotion: emotionData.dominant_emotion
+    contentAnalysis: contentData.analysis,
+    score: contentData.score || 0,
+    speechAnalysis: speechData
   };
 }
