@@ -6,3 +6,4 @@ tf-keras
 fastapi
 uvicorn
 ollama
+python-multipart

@@ -371,12 +371,26 @@ def analyze_audio(audio_file_path):
         else:
             temp_wav = audio_file_path
 
-        # Extract audio features using librosa
-        y, sr_rate = librosa.load(temp_wav)
-        
-        # Detect silence/pauses        
-        intervals = librosa.effects.split(y, top_db=30)
-        
+        # Add error checking for file existence
+        if not os.path.exists(temp_wav):
+            raise HTTPException(status_code=400, detail="Audio file not found or conversion failed")
+
+        # Load audio with error handling
+        try:
+            y, sr_rate = librosa.load(temp_wav, sr=None)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to load audio file: {str(e)}")
+
+        if len(y) == 0:
+            raise HTTPException(status_code=400, detail="Audio file appears to be empty")
+
+        # Detect silence/pauses with safe defaults
+        try:
+            intervals = librosa.effects.split(y, top_db=30)
+        except Exception as e:
+            print(f"Error detecting pauses: {str(e)}")
+            intervals = np.array([[0, len(y)]])  # Fallback to treating entire audio as one segment
+
         # Calculate duration of pauses
         pauses = []
         for i in range(len(intervals)-1):
@@ -384,69 +398,102 @@ def analyze_audio(audio_file_path):
             if pause_duration > 0.3:  # Only count pauses longer than 0.3 seconds
                 pauses.append(pause_duration)
 
-        # Perform transcription with timestamps
-        recognizer = sr.Recognizer()
-        with sr.AudioFile(temp_wav) as source:
-            audio_data = recognizer.record(source)
-            transcription = recognizer.recognize_google(audio_data)
+        # Perform transcription with error handling
+        try:
+            recognizer = sr.Recognizer()
+            with sr.AudioFile(temp_wav) as source:
+                audio_data = recognizer.record(source)
+                transcription = recognizer.recognize_google(audio_data)
+        except Exception as e:
+            print(f"Transcription error: {str(e)}")
+            transcription = ""  # Fallback to empty transcription
 
-        # Split audio into segments based on pauses
+        # Calculate pitch and segments with error handling
         segments = []
         segment_pitches = []
         
-        for i in range(len(intervals)):
-            start_sample, end_sample = intervals[i]
-            segment = y[start_sample:end_sample]
-            
-            # Calculate pitch for each segment
-            if len(segment) > 0:
-                pitches, magnitudes = librosa.piptrack(y=segment, sr=sr_rate)
-                segment_pitch = np.mean(pitches[magnitudes > np.max(magnitudes) * 0.7])
-                segment_pitches.append(segment_pitch)
+        try:
+            for i in range(len(intervals)):
+                start_sample, end_sample = intervals[i]
+                segment = y[start_sample:end_sample]
                 
-                # Convert samples to time
-                start_time = float(start_sample) / sr_rate
-                end_time = float(end_sample) / sr_rate
-                segments.append({
-                    'start_time': start_time,
-                    'end_time': end_time,
-                    'pitch': segment_pitch
-                })
+                if len(segment) > 0:
+                    pitches, magnitudes = librosa.piptrack(y=segment, sr=sr_rate)
+                    if len(pitches) > 0 and len(magnitudes) > 0:
+                        pitch_mask = magnitudes > np.max(magnitudes) * 0.7
+                        valid_pitches = pitches[pitch_mask]
+                        segment_pitch = np.mean(valid_pitches) if len(valid_pitches) > 0 else 0
+                    else:
+                        segment_pitch = 0
+                    
+                    segment_pitches.append(segment_pitch)
+                    segments.append({
+                        'start_time': float(start_sample) / sr_rate,
+                        'end_time': float(end_sample) / sr_rate,
+                        'pitch': segment_pitch
+                    })
+        except Exception as e:
+            print(f"Error calculating pitch: {str(e)}")
+            # Add a default segment if pitch calculation fails
+            segments = [{'start_time': 0, 'end_time': len(y)/sr_rate, 'pitch': 0}]
+            segment_pitches = [0]
 
-        # Calculate average pitch for reference
+        # Calculate average pitch safely
         avg_pitch = np.mean([s['pitch'] for s in segments]) if segments else 0
 
-        # Add visualization data
-        y_harmonic, _ = librosa.effects.hpss(y)
-        frequencies = librosa.feature.mfcc(y=y_harmonic, sr=sr_rate, n_mfcc=13)
-        visualization_data = frequencies[0].tolist()  # Use first MFCC coefficient for visualization
+        # Generate visualization data safely
+        try:
+            y_harmonic, _ = librosa.effects.hpss(y)
+            frequencies = librosa.feature.mfcc(y=y_harmonic, sr=sr_rate, n_mfcc=13)
+            visualization_data = frequencies[0].tolist()
+        except Exception as e:
+            print(f"Error generating visualization data: {str(e)}")
+            visualization_data = [0] * 13  # Fallback to empty visualization
 
-        # Perform personality detection on transcription
-        personality_scores = personality_detection(transcription)
+        # Get personality scores with error handling
+        try:
+            personality_scores = personality_detection(transcription) if transcription else {
+                'Extroversion': 0,
+                'Neuroticism': 0,
+                'Agreeableness': 0,
+                'Conscientiousness': 0,
+                'Openness': 0
+            }
+        except Exception as e:
+            print(f"Error in personality detection: {str(e)}")
+            personality_scores = {
+                'Extroversion': 0,
+                'Neuroticism': 0,
+                'Agreeableness': 0,
+                'Conscientiousness': 0,
+                'Openness': 0
+            }
 
+        # Prepare metrics with safe values
         speech_metrics = {
             'segments': segments,
             'pauses': pauses,
-            'average_pitch': avg_pitch,
+            'average_pitch': float(avg_pitch),
             'pause_count': len(pauses),
-            'average_pause_duration': np.mean(pauses) if pauses else 0,
+            'average_pause_duration': float(np.mean(pauses)) if pauses else 0.0,
             'personality_scores': personality_scores,
-            'word_count': len(transcription.split()),
-            'visualization_data': visualization_data  # Add visualization data to metrics
+            'word_count': len(transcription.split()) if transcription else 0,
+            'visualization_data': visualization_data
         }
 
         return transcription, speech_metrics
 
     except Exception as e:
+        print(f"Unexpected error in analyze_audio: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error processing audio: {str(e)}")
     
     finally:
-        # Clean up temporary files that are not the original
-        if temp_wav and temp_wav != audio_file_path and os.path.exists(temp_wav):
-            try:
+        # Clean up temporary files
+        try:
+            if temp_wav and temp_wav != audio_file_path and os.path.exists(temp_wav):
                 os.remove(temp_wav)
-            except:
-                pass
+        except Exception as e:
+            print(f"Error cleaning up temporary files: {str(e)}")
 
 def generate_feedback(transcription, speech_metrics):
     if not verify_groq_connection():
@@ -463,12 +510,12 @@ def generate_feedback(transcription, speech_metrics):
 
     prompt = f"""Analyze the provided speech transcription, voice metrics, and personality traits. Deliver concise, structured feedback addressing:
 
-1. **Voice Quality:** Comment briefly on overall clarity and consistency of voice.
-2. **Pitch Modulation:** Evaluate the appropriateness and variation of pitch.
-3. **Pacing & Pauses:** Assess the number and duration of pauses—highlight if pacing enhances or disrupts delivery.
-4. **Content Clarity:** Quickly note if content structure and message clarity were effective.
-5. **Personality Traits:** Analyze how the detected personality traits may influence communication style and effectiveness.
-6. **Improvement Suggestions:** Provide clear, actionable recommendations focusing specifically on pitch, pause management, and personality-based communication strategies.
+1. *Voice Quality:* Comment briefly on overall clarity and consistency of voice.
+2. *Pitch Modulation:* Evaluate the appropriateness and variation of pitch.
+3. *Pacing & Pauses:* Assess the number and duration of pauses—highlight if pacing enhances or disrupts delivery.
+4. *Content Clarity:* Quickly note if content structure and message clarity were effective.
+5. *Personality Traits:* Analyze how the detected personality traits may influence communication style and effectiveness.
+6. *Improvement Suggestions:* Provide clear, actionable recommendations focusing specifically on pitch, pause management, and personality-based communication strategies.
 
 Speech Analysis Data:
 - Transcription: {transcription}
