@@ -1,24 +1,55 @@
-import streamlit as st
-import speech_recognition as sr
-import librosa
-import numpy as np
 import os
-import warnings
-import requests
-from groq import Groq
-from pydub import AudioSegment
+import re
 import tempfile
+import warnings
+import uvicorn
+import numpy as np
+from typing import List, Optional
+from pydub import AudioSegment
+from dotenv import load_dotenv
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException, BackgroundTasks, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from groq import Groq
 import google.generativeai as genai
 import PyPDF2
-from dotenv import load_dotenv
-import re
+import speech_recognition as sr
+import librosa
+import requests
 from transformers import BertTokenizer, BertForSequenceClassification
+import shutil
 
+# Configure FFmpeg path - use the one installed by winget
+ffmpeg_path = shutil.which('ffmpeg')
+if ffmpeg_path:
+    AudioSegment.converter = ffmpeg_path
+    print(f"Using FFmpeg from: {ffmpeg_path}")
+else:
+    print("Warning: FFmpeg not found in PATH. Audio processing features may not work correctly.")
+
+# Suppress warnings and configure environment
 warnings.filterwarnings('ignore')
 os.environ['TOKENIZERS_PARALLELISM'] = 'false'
 load_dotenv()
 
-# Initialize Groq client with API key from environment variable
+# Initialize FastAPI app
+app = FastAPI(
+    title="AI Interview Preparation API",
+    description="API for resume analysis, interview question generation, and speech analysis",
+    version="1.0.0"
+)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Modify this in production to specific origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Initialize Groq client
 api_key = os.environ.get("GROQ_API_KEY", "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")
 groq_client = Groq(api_key=api_key)
 
@@ -27,6 +58,57 @@ def initialize_gemini():
     google_api_key = "AIzaSyAjeaMnL97sqU-IZbjwho65DTDjMtkjlF4"
     genai.configure(api_key=google_api_key)
     return genai.GenerativeModel("gemini-1.5-flash")
+
+# Supported audio formats
+SUPPORTED_FORMATS = {
+    'wav': 'WAV',
+    'mp3': 'MP3',
+    'mp4': 'MP4',
+    'm4a': 'M4A',
+    'ogg': 'OGG',
+    'flac': 'FLAC'
+}
+
+# Pydantic models for request/response
+class QuestionRequest(BaseModel):
+    num_questions: int = 5
+    job_description: Optional[str] = None
+
+class Question(BaseModel):
+    text: str
+
+class QuestionResponse(BaseModel):
+    questions: List[Question]
+    message: Optional[str] = None
+
+class AnalysisRequest(BaseModel):
+    question: str
+    job_description: Optional[str] = None
+    resume_text: Optional[str] = None
+
+class PersonalityScore(BaseModel):
+    Extroversion: float
+    Neuroticism: float
+    Agreeableness: float
+    Conscientiousness: float
+    Openness: float
+
+class SpeechMetrics(BaseModel):
+    average_pitch: float
+    pause_count: int
+    average_pause_duration: float
+    word_count: int
+    personality_scores: PersonalityScore
+    visualization_data: List[float]  # Add this field
+
+class SpeechAnalysisResponse(BaseModel):
+    transcription: str
+    metrics: SpeechMetrics
+    feedback: str
+
+class ContentAnalysisResponse(BaseModel):
+    analysis: str
+    score: Optional[int] = None
 
 # Function to remove personal information
 def remove_details(text):
@@ -45,7 +127,7 @@ def extract_text_from_pdf(pdf_file):
         
         # Check if PDF content is too short or empty
         if len(clean_text) < 50:
-            return None, "The uploaded PDF appears to be empty or contains very little text. Please upload a valid resume."
+            return None, "The uploaded PDF appears to be empty or contains very little text."
             
         return clean_text, None
     except Exception as e:
@@ -53,8 +135,7 @@ def extract_text_from_pdf(pdf_file):
 
 # Function to check for inappropriate content
 def contains_inappropriate_content(text):
-    # List of words/patterns that might indicate hate speech or inappropriate content
-    # This is a simplified check - in production, you might use a more sophisticated content moderation API
+    # List of words/patterns that might indicate inappropriate content
     inappropriate_patterns = [
         r'\b(hate|hating|hateful)\b', 
         r'\b(racist|racism|racial slur)\b',
@@ -76,10 +157,10 @@ def generate_questions(resume_text, num_questions, job_description=None):
     
     # Check for inappropriate content
     if contains_inappropriate_content(resume_text):
-        return [], "The resume contains potentially inappropriate content. Please review and upload an appropriate resume."
+        return [], "The resume contains potentially inappropriate content."
     
     if job_description and contains_inappropriate_content(job_description):
-        return [], "The job description contains potentially inappropriate content. Please review and provide appropriate content."
+        return [], "The job description contains potentially inappropriate content."
     
     # Extract candidate name from resume for personalization
     name_match = re.search(r"(?i)name[:\s]+([A-Za-z\s]+)", resume_text)
@@ -115,7 +196,7 @@ def generate_questions(resume_text, num_questions, job_description=None):
             if re.match(r'^\d+[\.\)]\s+', q):
                 q = re.sub(r'^\d+[\.\)]\s+', '', q)
             
-            # Validate that this is an actual question (not an introduction or explanation)
+            # Validate that this is an actual question
             if len(q) > 15 and ('?' in q or re.search(r'\b(explain|describe|discuss|tell|how|what|when|where|why|which|who)\b', q, re.IGNORECASE)):
                 # Check for inappropriate content in the question
                 if not contains_inappropriate_content(q):
@@ -161,7 +242,7 @@ def analyze_answer_content(audio_file_path, question, job_description=None, resu
         # Check if the audio file exists and has content
         file_size = os.path.getsize(audio_file_path)
         if file_size < 1000:  # If file is smaller than 1KB, likely empty or corrupted
-            return "The audio file appears to be empty or too short to analyze. Score: 0/100"
+            return "The audio file appears to be empty or too short to analyze. Score: 0/100", 0
         
         with open(audio_file_path, "rb") as f:
             audio_data = f.read()
@@ -214,21 +295,17 @@ def analyze_answer_content(audio_file_path, question, job_description=None, resu
         
         # Check for inappropriate content in the response
         if contains_inappropriate_content(content):
-            return "The analysis detected potentially inappropriate content in the response. Please review the audio content for appropriateness. Score: 0/100"
+            return "The analysis detected potentially inappropriate content in the response. Please review the audio content for appropriateness. Score: 0/100", 0
             
-        return content
+        # Extract score if available
+        score = 0
+        score_match = re.search(r'(\d+)[\/\s]*100', content)
+        if score_match:
+            score = int(score_match.group(1))
+            
+        return content, score
     except Exception as e:
-        return f"Error analyzing answer: {str(e)}. Score: 0/100"
-
-# Supported audio formats
-SUPPORTED_FORMATS = {
-    'wav': 'WAV',
-    'mp3': 'MP3',
-    'mp4': 'MP4',
-    'm4a': 'M4A',
-    'ogg': 'OGG',
-    'flac': 'FLAC'
-}
+        return f"Error analyzing answer: {str(e)}. Score: 0/100", 0
 
 def convert_to_wav(audio_file, file_type):
     """Convert audio file to WAV format"""
@@ -244,8 +321,7 @@ def convert_to_wav(audio_file, file_type):
         audio.export(temp_wav, format="wav")
         return temp_wav
     except Exception as e:
-        st.error(f"Error converting audio file: {str(e)}")
-        return None
+        raise HTTPException(status_code=400, detail=f"Error converting audio file: {str(e)}")
 
 # Verify Groq API connection
 def verify_groq_connection():
@@ -259,80 +335,71 @@ def verify_groq_connection():
         response.raise_for_status()
         return True
     except Exception as e:
-        st.error(f"Error connecting to Groq API: {str(e)}")
         return False
 
 # Function for personality detection
 def personality_detection(text):
-    tokenizer = BertTokenizer.from_pretrained("Minej/bert-base-personality")
-    model = BertForSequenceClassification.from_pretrained("Minej/bert-base-personality")
+    try:
+        tokenizer = BertTokenizer.from_pretrained("Minej/bert-base-personality")
+        model = BertForSequenceClassification.from_pretrained("Minej/bert-base-personality")
 
-    inputs = tokenizer(text, truncation=True, padding=True, return_tensors="pt")
-    outputs = model(**inputs)
-    predictions = outputs.logits.squeeze().detach().numpy()
+        inputs = tokenizer(text, truncation=True, padding=True, return_tensors="pt")
+        outputs = model(**inputs)
+        predictions = outputs.logits.squeeze().detach().numpy()
 
-    # Apply sigmoid function to convert logits to probabilities between 0 and 1
-    def sigmoid(x):
-        return 1 / (1 + np.exp(-x))
-    
-    predictions = sigmoid(predictions)
-    
-    # Scale to 0-100 range for better readability
-    predictions = predictions * 100
+        # Apply sigmoid function to convert logits to probabilities
+        def sigmoid(x):
+            return 1 / (1 + np.exp(-x))
+        
+        predictions = sigmoid(predictions)
+        
+        # Scale to 0-100 range for better readability
+        predictions = predictions * 100
 
-    label_names = ['Extroversion', 'Neuroticism', 'Agreeableness', 'Conscientiousness', 'Openness']
-    result = {label_names[i]: float(predictions[i]) for i in range(len(label_names))}
+        label_names = ['Extroversion', 'Neuroticism', 'Agreeableness', 'Conscientiousness', 'Openness']
+        result = {label_names[i]: float(predictions[i]) for i in range(len(label_names))}
 
-    return result
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error in personality detection: {str(e)}")
 
-st.set_page_config(page_title="Speech Feedback App", page_icon="🎤", layout="wide")
-
-@st.cache_resource
-def load_models():
-    recognizer = sr.Recognizer()
-    return recognizer
-
-def analyze_audio(uploaded_file):
+def analyze_audio(audio_file_path):
     """Process audio file and return transcription, pitch details, and pause information"""
     temp_input = None
     temp_wav = None
     try:
-        # Check if the uploaded_file is a string (file path) or a file object
-        if isinstance(uploaded_file, str):
-            # It's a file path
-            file_path = uploaded_file
-            file_extension = file_path.split('.')[-1].lower()
-            temp_input = file_path
-        else:
-            # It's a file object (from streamlit uploader)
-            file_extension = uploaded_file.name.split('.')[-1].lower()
-            
-            # Create a temporary file for the uploaded audio
-            temp_dir = tempfile.gettempdir()
-            temp_input = os.path.join(temp_dir, f"input_audio.{file_extension}")
-            
-            # Save uploaded file
-            with open(temp_input, 'wb') as f:
-                f.write(uploaded_file.getvalue())
-
+        # Determine file extension
+        file_extension = audio_file_path.split('.')[-1].lower()
+        
         if file_extension not in SUPPORTED_FORMATS:
-            st.error(f"Unsupported file format. Please upload one of: {', '.join(SUPPORTED_FORMATS.keys())}")
-            return None, None
+            raise HTTPException(status_code=400, detail=f"Unsupported file format. Please upload one of: {', '.join(SUPPORTED_FORMATS.keys())}")
 
         # Convert to WAV if needed
         if file_extension != 'wav':
-            temp_wav = convert_to_wav(temp_input, file_extension)
-            if not temp_wav:
-                return None, None
+            temp_wav = convert_to_wav(audio_file_path, file_extension)
         else:
-            temp_wav = temp_input
+            temp_wav = audio_file_path
 
-        # Extract audio features using librosa
-        y, sr_rate = librosa.load(temp_wav)
-        
-        # Detect silence/pauses        
-        intervals = librosa.effects.split(y, top_db=30)
-        
+        # Add error checking for file existence
+        if not os.path.exists(temp_wav):
+            raise HTTPException(status_code=400, detail="Audio file not found or conversion failed")
+
+        # Load audio with error handling
+        try:
+            y, sr_rate = librosa.load(temp_wav, sr=None)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to load audio file: {str(e)}")
+
+        if len(y) == 0:
+            raise HTTPException(status_code=400, detail="Audio file appears to be empty")
+
+        # Detect silence/pauses with safe defaults
+        try:
+            intervals = librosa.effects.split(y, top_db=30)
+        except Exception as e:
+            print(f"Error detecting pauses: {str(e)}")
+            intervals = np.array([[0, len(y)]])  # Fallback to treating entire audio as one segment
+
         # Calculate duration of pauses
         pauses = []
         for i in range(len(intervals)-1):
@@ -340,83 +407,106 @@ def analyze_audio(uploaded_file):
             if pause_duration > 0.3:  # Only count pauses longer than 0.3 seconds
                 pauses.append(pause_duration)
 
-        # Perform transcription with timestamps
-        recognizer = sr.Recognizer()
-        with sr.AudioFile(temp_wav) as source:
-            audio_data = recognizer.record(source)
-            transcription = recognizer.recognize_google(audio_data)
+        # Perform transcription with error handling
+        try:
+            recognizer = sr.Recognizer()
+            with sr.AudioFile(temp_wav) as source:
+                audio_data = recognizer.record(source)
+                transcription = recognizer.recognize_google(audio_data)
+        except Exception as e:
+            print(f"Transcription error: {str(e)}")
+            transcription = ""  # Fallback to empty transcription
 
-        # Split audio into segments based on pauses
+        # Calculate pitch and segments with error handling
         segments = []
         segment_pitches = []
         
-        for i in range(len(intervals)):
-            start_sample, end_sample = intervals[i]
-            segment = y[start_sample:end_sample]
-            
-            # Calculate pitch for each segment
-            if len(segment) > 0:
-                pitches, magnitudes = librosa.piptrack(y=segment, sr=sr_rate)
-                segment_pitch = np.mean(pitches[magnitudes > np.max(magnitudes) * 0.7])
-                segment_pitches.append(segment_pitch)
+        try:
+            for i in range(len(intervals)):
+                start_sample, end_sample = intervals[i]
+                segment = y[start_sample:end_sample]
                 
-                # Convert samples to time
-                start_time = float(start_sample) / sr_rate
-                end_time = float(end_sample) / sr_rate
-                segments.append({
-                    'start_time': start_time,
-                    'end_time': end_time,
-                    'pitch': segment_pitch
-                })
+                if len(segment) > 0:
+                    pitches, magnitudes = librosa.piptrack(y=segment, sr=sr_rate)
+                    if len(pitches) > 0 and len(magnitudes) > 0:
+                        pitch_mask = magnitudes > np.max(magnitudes) * 0.7
+                        valid_pitches = pitches[pitch_mask]
+                        segment_pitch = np.mean(valid_pitches) if len(valid_pitches) > 0 else 0
+                    else:
+                        segment_pitch = 0
+                    
+                    segment_pitches.append(segment_pitch)
+                    segments.append({
+                        'start_time': float(start_sample) / sr_rate,
+                        'end_time': float(end_sample) / sr_rate,
+                        'pitch': segment_pitch
+                    })
+        except Exception as e:
+            print(f"Error calculating pitch: {str(e)}")
+            # Add a default segment if pitch calculation fails
+            segments = [{'start_time': 0, 'end_time': len(y)/sr_rate, 'pitch': 0}]
+            segment_pitches = [0]
 
-        # Calculate average pitch for reference
+        # Calculate average pitch safely
         avg_pitch = np.mean([s['pitch'] for s in segments]) if segments else 0
 
-        # Perform personality detection on transcription
-        personality_scores = personality_detection(transcription)
+        # Generate visualization data safely
+        try:
+            y_harmonic, _ = librosa.effects.hpss(y)
+            frequencies = librosa.feature.mfcc(y=y_harmonic, sr=sr_rate, n_mfcc=13)
+            visualization_data = frequencies[0].tolist()
+        except Exception as e:
+            print(f"Error generating visualization data: {str(e)}")
+            visualization_data = [0] * 13  # Fallback to empty visualization
 
+        # Get personality scores with error handling
+        try:
+            personality_scores = personality_detection(transcription) if transcription else {
+                'Extroversion': 0,
+                'Neuroticism': 0,
+                'Agreeableness': 0,
+                'Conscientiousness': 0,
+                'Openness': 0
+            }
+        except Exception as e:
+            print(f"Error in personality detection: {str(e)}")
+            personality_scores = {
+                'Extroversion': 0,
+                'Neuroticism': 0,
+                'Agreeableness': 0,
+                'Conscientiousness': 0,
+                'Openness': 0
+            }
+
+        # Prepare metrics with safe values
         speech_metrics = {
             'segments': segments,
             'pauses': pauses,
-            'average_pitch': avg_pitch,
+            'average_pitch': float(avg_pitch),
             'pause_count': len(pauses),
-            'average_pause_duration': np.mean(pauses) if pauses else 0,
-            'personality_scores': personality_scores
+            'average_pause_duration': float(np.mean(pauses)) if pauses else 0.0,
+            'personality_scores': personality_scores,
+            'word_count': len(transcription.split()) if transcription else 0,
+            'visualization_data': visualization_data
         }
 
         return transcription, speech_metrics
 
     except Exception as e:
-        st.error(f"Error processing audio: {str(e)}")
-        return None, None
+        print(f"Unexpected error in analyze_audio: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error processing audio: {str(e)}")
     
     finally:
-        # Clean up temporary files - only if they're not the original input file
-        if isinstance(uploaded_file, str):
-            # If it's a file path, only clean temp_wav if it's different from the input
-            if temp_wav and temp_wav != temp_input and os.path.exists(temp_wav):
-                try:
-                    os.remove(temp_wav)
-                except:
-                    pass
-        else:
-            # If it's a file object, clean both temp files
-            for temp_file in [temp_input, temp_wav]:
-                if temp_file and os.path.exists(temp_file):
-                    try:
-                        os.remove(temp_file)
-                    except:
-                        pass
+        # Clean up temporary files
+        try:
+            if temp_wav and temp_wav != audio_file_path and os.path.exists(temp_wav):
+                os.remove(temp_wav)
+        except Exception as e:
+            print(f"Error cleaning up temporary files: {str(e)}")
 
 def generate_feedback(transcription, speech_metrics):
     if not verify_groq_connection():
-        return "Unable to generate feedback due to API connection issues. Please try again later."
-
-    # Create a detailed analysis of speaking patterns
-    pause_analysis = f"""
-    - Number of significant pauses: {speech_metrics['pause_count']}
-    - Average pause duration: {speech_metrics['average_pause_duration']:.2f} seconds
-    """
+        raise HTTPException(status_code=503, detail="Unable to connect to Groq API. Please try again later.")
 
     # Analyze pitch variations
     pitch_variations = []
@@ -429,19 +519,19 @@ def generate_feedback(transcription, speech_metrics):
 
     prompt = f"""Analyze the provided speech transcription, voice metrics, and personality traits. Deliver concise, structured feedback addressing:
 
-1. **Voice Quality:** Comment briefly on overall clarity and consistency of voice.
-2. **Pitch Modulation:** Evaluate the appropriateness and variation of pitch.
-3. **Pacing & Pauses:** Assess the number and duration of pauses—highlight if pacing enhances or disrupts delivery.
-4. **Content Clarity:** Quickly note if content structure and message clarity were effective.
-5. **Personality Traits:** Analyze how the detected personality traits may influence communication style and effectiveness.
-6. **Improvement Suggestions:** Provide clear, actionable recommendations focusing specifically on pitch, pause management, and personality-based communication strategies.
+1. *Voice Quality:* Comment briefly on overall clarity and consistency of voice.
+2. *Pitch Modulation:* Evaluate the appropriateness and variation of pitch.
+3. *Pacing & Pauses:* Assess the number and duration of pauses—highlight if pacing enhances or disrupts delivery.
+4. *Content Clarity:* Quickly note if content structure and message clarity were effective.
+5. *Personality Traits:* Analyze how the detected personality traits may influence communication style and effectiveness.
+6. *Improvement Suggestions:* Provide clear, actionable recommendations focusing specifically on pitch, pause management, and personality-based communication strategies.
 
 Speech Analysis Data:
 - Transcription: {transcription}
 - Average Pitch: {speech_metrics['average_pitch']:.2f} Hz
 - Total Pauses: {speech_metrics['pause_count']}
 - Average Pause Duration: {speech_metrics['average_pause_duration']} seconds
-- Pitch Variation: from {min(pitch_variations):.1f}% to {max(pitch_variations):.1f}% compared to the average.
+- Pitch Variation: from {min(pitch_variations) if pitch_variations else 0:.1f}% to {max(pitch_variations) if pitch_variations else 0:.1f}% compared to the average.
 
 Personality Traits:
 {personality_analysis}
@@ -470,321 +560,320 @@ Format your response clearly, succinctly, and in easily readable bullet points. 
         
         return completion.choices[0].message.content
     except Exception as e:
-        st.error(f"Error generating feedback: {str(e)}")
-        return "Unable to generate feedback at this time. Please try again later."
+        raise HTTPException(status_code=500, detail=f"Error generating feedback: {str(e)}")
 
-def main():
-    st.markdown("""
-        <style>
-        .main-header {
-            color: #00ff95;
-            text-align: center;
-            padding: 2rem 0;
-        }
-        .metric-container {
-            background-color: #2a2a2a;
-            padding: 1.5rem;
-            border-radius: 10px;
-            border: 1px solid #333;
-        }
-        .feedback-container {
-            background-color: #2a2a2a;
-            padding: 2rem;
-            border-radius: 10px;
-            border: 1px solid #333;
-            margin: 1rem 0;
-        }
-        .warning-container {
-            background-color: #8B0000;
-            color: white;
-            padding: 1rem;
-            border-radius: 10px;
-            margin: 1rem 0;
-        }
-        </style>
-    """, unsafe_allow_html=True)
+# Endpoints
+@app.get("/")
+async def root():
+    return {"message": "Welcome to the AI Interview Preparation API"}
 
-    st.markdown('<h1 class="main-header">🎤 AI Interview Preparation Platform</h1>', unsafe_allow_html=True)
+@app.post("/extract-pdf-text/", response_model=dict)
+async def extract_pdf_text(file: UploadFile = File(...)):
+    if not file.filename.endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported")
+    
+    try:
+        # Read the file content
+        contents = await file.read()
+        
+        # Create a temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
+            temp_file.write(contents)
+            temp_path = temp_file.name
+        
+        # Extract text from the PDF
+        text, error = extract_text_from_pdf(temp_path)
+        
+        # Clean up
+        os.unlink(temp_path)
+        
+        if error:
+            raise HTTPException(status_code=400, detail=error)
+        
+        return {"text": text}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-    # Create tabs for different functionalities
-    tab1, tab2 = st.tabs(["Resume Analysis & Questions", "Speech Analysis"])
-
-    with tab1:
-        st.subheader("Resume Analysis & Question Generation")
+@app.post("/generate-questions/", response_model=QuestionResponse)
+async def api_generate_questions(
+    resume_file: UploadFile = File(...),
+    num_questions: int = Form(5),
+    job_description: Optional[str] = Form(None),
+    job_description_file: Optional[UploadFile] = File(None)
+):
+    # Process resume file
+    if not resume_file.filename.endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported for resume")
+    
+    try:
+        # Read the resume file content
+        resume_contents = await resume_file.read()
         
-        # Resume upload
-        st.markdown("### Upload Your Resume")
-        uploaded_resume = st.file_uploader("Upload Resume (PDF)", type="pdf")
+        # Create a temporary file for resume
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
+            temp_file.write(resume_contents)
+            resume_path = temp_file.name
         
-        # Job description section
-        st.markdown("### Job Description (Optional)")
-        job_description_method = st.radio(
-            "Choose how to provide job description:",
-            ["None", "Upload PDF", "Type job description"]
-        )
+        # Extract text from resume
+        resume_text, resume_error = extract_text_from_pdf(resume_path)
         
-        job_description = None
+        # Clean up resume file
+        os.unlink(resume_path)
         
-        if job_description_method == "Upload PDF":
-            uploaded_job_desc = st.file_uploader("Upload Job Description (PDF)", type="pdf", key="job_desc_pdf")
-            if uploaded_job_desc:
-                job_description_text, error = extract_text_from_pdf(uploaded_job_desc)
-                if error:
-                    st.error(error)
-                else:
-                    job_description = job_description_text
-                    with st.expander("View Extracted Job Description"):
-                        st.text(job_description)
+        if resume_error:
+            raise HTTPException(status_code=400, detail=resume_error)
         
-        elif job_description_method == "Type job description":
-            job_description_input = st.text_area("Enter job description", height=200)
-            if job_description_input.strip():
-                # Check for inappropriate content
-                if contains_inappropriate_content(job_description_input):
-                    st.markdown('<div class="warning-container">The job description contains potentially inappropriate content. Please provide appropriate content.</div>', unsafe_allow_html=True)
-                else:
-                    job_description = job_description_input
-        
-        # Question generation
-        num_questions = st.slider("Select number of questions", 3, 10, 5)
-        
-        if uploaded_resume:
-            resume_text, error = extract_text_from_pdf(uploaded_resume)
+        # Process job description file if provided
+        job_desc_text = job_description
+        if job_description_file:
+            if not job_description_file.filename.endswith('.pdf'):
+                raise HTTPException(status_code=400, detail="Only PDF files are supported for job description")
             
-            if error:
-                st.error(error)
-            else:
-                st.session_state.resume_text = resume_text
-                
-                with st.expander("View Extracted Resume Text"):
-                    st.text(resume_text)
-                
-                # Store job description in session state
-                if job_description:
-                    st.session_state.job_description = job_description
-                elif 'job_description' in st.session_state:
-                    del st.session_state.job_description
-                
-                if st.button("Generate Interview Questions"):
-                    with st.spinner("Generating questions..."):
-                        questions, error = generate_questions(
-                            resume_text, 
-                            num_questions, 
-                            job_description=job_description if job_description else None
-                        )
-                        
-                        if error:
-                            st.error(error)
-                        else:
-                            # Validate we have the correct number of questions
-                            if len(questions) != num_questions:
-                                st.warning(f"Generated {len(questions)} valid questions instead of the requested {num_questions}. You may want to regenerate.")
-                            
-                            if len(questions) > 0:
-                                st.session_state.questions = questions
-                                st.success("Questions generated successfully!")
-                                
-                                # Display information about question generation
-                                if job_description:
-                                    st.info("Questions are tailored based on both your resume and the job description.")
-                                else:
-                                    st.info("Questions are based solely on your resume. Add a job description for more targeted questions.")
-                            else:
-                                st.error("Failed to generate valid questions. Please check your resume content and try again.")
-
-        # Question and Answer Section
-        if "questions" in st.session_state and st.session_state.questions:
-            st.subheader("Practice Your Answers")
-            audio_files = {}
-
-            for i, question in enumerate(st.session_state.questions, 1):
-                st.markdown(f"**Question {i}:** {question}")
-                
-                uploaded_audio = st.file_uploader(
-                    f"Upload your answer for Question {i}",
-                    type=list(SUPPORTED_FORMATS.keys()),
-                    key=f"audio_{i}"
-                )
-
-                if uploaded_audio:
-                    # Check file size to ensure it's not empty
-                    if uploaded_audio.size < 1000:  # Less than 1KB
-                        st.error(f"The uploaded audio file for Question {i} appears to be empty or corrupted. Please upload a valid audio file.")
-                        continue
-                        
-                    temp_audio_path = os.path.join(tempfile.gettempdir(), f"answer_{i}.wav")
-                    
-                    try:
-                        # Convert to WAV if needed
-                        if uploaded_audio.name.split('.')[-1].lower() != 'wav':
-                            with open(os.path.join(tempfile.gettempdir(), f"temp_input_{i}.{uploaded_audio.name.split('.')[-1]}"), 'wb') as f:
-                                f.write(uploaded_audio.getvalue())
-                                
-                            audio = AudioSegment.from_file(f.name, format=uploaded_audio.name.split('.')[-1].lower())
-                            audio.export(temp_audio_path, format="wav")
-                        else:
-                            with open(temp_audio_path, "wb") as f:
-                                f.write(uploaded_audio.getvalue())
-                        
-                        audio_files[f"audio_{i}"] = temp_audio_path
-                        st.success(f"Answer {i} uploaded successfully!")
-                    except Exception as e:
-                        st.error(f"Error processing audio file for Question {i}: {str(e)}")
-
-            st.session_state.audio_files = audio_files
-
-            if "audio_files" in st.session_state and st.session_state.audio_files and st.button("Analyze All Answers"):
-                st.subheader("Comprehensive Answer Analysis")
-                
-                job_desc_for_analysis = st.session_state.get('job_description', None)
-                resume_text_for_analysis = st.session_state.get('resume_text', None)
-                
-                all_scores = []
-                
-                for i, question in enumerate(st.session_state.questions, 1):
-                    audio_key = f"audio_{i}"
-                    if audio_key in st.session_state.audio_files:
-                        st.markdown(f"### Analysis for Question {i}")
-                        
-                        # Content Analysis
-                        with st.spinner(f"Analyzing content for Question {i}..."):
-                            content_analysis = analyze_answer_content(
-                                st.session_state.audio_files[audio_key],
-                                question,
-                                job_description=job_desc_for_analysis,
-                                resume_text=resume_text_for_analysis
-                            )
-                            st.markdown("#### Content Analysis")
-                            st.write(content_analysis)
-                            
-                            # Extract score if available
-                            score_match = re.search(r'(\d+)[\/\s]*100', content_analysis)
-                            if score_match:
-                                all_scores.append(int(score_match.group(1)))
-                        
-                        # Speech Analysis
-                        with st.spinner(f"Analyzing speech patterns for Question {i}..."):
-                            try:
-                                transcription, speech_metrics = analyze_audio(
-                                    st.session_state.audio_files[audio_key]
-                                )
-                                
-                                if transcription and speech_metrics:
-                                    st.markdown("#### Speech Analysis")
-                                    st.markdown('<div class="feedback-container">', unsafe_allow_html=True)
-                                    
-                                    # Display Metrics
-                                    col1, col2, col3 = st.columns(3)
-                                    with col1:
-                                        st.metric("🎵 Average Pitch", f"{speech_metrics['average_pitch']:.2f} Hz")
-                                    with col2:
-                                        st.metric("⏱️ Pauses", f"{speech_metrics['pause_count']}")
-                                    with col3:
-                                        st.metric("📝 Word Count", str(len(transcription.split())))
-                                    
-                                    # Display Personality Traits
-                                    st.markdown('<div class="feedback-container">', unsafe_allow_html=True)
-                                    st.subheader("👤 Personality Traits Analysis")
-                                    personality_scores = speech_metrics['personality_scores']
-                                    for trait, score in personality_scores.items():
-                                        st.metric(trait, f"{score:.2f}")
-                                    st.markdown('</div>', unsafe_allow_html=True)
-                                    
-                                    # Display Pitch Graph
-                                    st.subheader("Pitch Variation")
-                                    pitch_data = [segment['pitch'] for segment in speech_metrics['segments']]
-                                    st.line_chart(pitch_data)
-                                    
-                                    # Generate Speech Feedback
-                                    feedback = generate_feedback(transcription, speech_metrics)
-                                    st.markdown("#### Speech Feedback")
-                                    st.write(feedback)
-                                    
-                                    st.markdown('</div>', unsafe_allow_html=True)
-                                else:
-                                    st.error("Could not extract speech data from the audio file. The file may be empty or in an unsupported format.")
-                            except Exception as e:
-                                st.error(f"Error analyzing speech patterns: {str(e)}")
-                
-                # Display overall score if we have scores
-                if all_scores:
-                    avg_score = sum(all_scores) / len(all_scores)
-                    st.markdown("### Overall Assessment")
-                    st.markdown('<div class="feedback-container">', unsafe_allow_html=True)
-                    st.metric("📊 Overall Job Fit Score", f"{avg_score:.1f}/100")
-                    
-                    # Provide overall feedback based on score
-                    if avg_score >= 80:
-                        st.success("Excellent performance! You appear to be a strong fit for this position.")
-                    elif avg_score >= 60:
-                        st.info("Good performance. With some improvements in the areas mentioned, you could be a solid candidate.")
-                    elif avg_score >= 40:
-                        st.warning("Moderate performance. Consider working on the suggestions provided to improve your candidacy.")
-                    else:
-                        st.error("You may need significant preparation before applying for this position. Focus on the key areas mentioned in the feedback.")
-                    
-                    st.markdown('</div>', unsafe_allow_html=True)
-
-    with tab2:
-        st.subheader("Speech Analysis")
-        # Original speech analysis functionality
-        uploaded_file = st.file_uploader(
-            f"Upload an audio file for speech analysis (Supported formats: {', '.join(SUPPORTED_FORMATS.keys())})", 
-            type=list(SUPPORTED_FORMATS.keys())
+            # Read the job description file content
+            job_desc_contents = await job_description_file.read()
+            
+            # Create a temporary file for job description
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
+                temp_file.write(job_desc_contents)
+                job_desc_path = temp_file.name
+            
+            # Extract text from job description
+            job_desc_from_file, job_desc_error = extract_text_from_pdf(job_desc_path)
+            
+            # Clean up job description file
+            os.unlink(job_desc_path)
+            
+            if job_desc_error:
+                raise HTTPException(status_code=400, detail=job_desc_error)
+            
+            # Use job description from file if provided
+            job_desc_text = job_desc_from_file
+        
+        # Generate questions
+        questions, error = generate_questions(resume_text, num_questions, job_description=job_desc_text)
+        
+        if error:
+            raise HTTPException(status_code=400, detail=error)
+        
+        return QuestionResponse(
+            questions=[Question(text=q) for q in questions],
+            message="Questions generated successfully"
         )
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-        if uploaded_file:
-            with st.spinner("Processing your audio and generating feedback..."):
-                transcription, speech_metrics = analyze_audio(uploaded_file)
+@app.post("/analyze-speech/")
+async def analyze_speech_endpoint(audio_file: UploadFile = File(...)):
+    try:
+        print(f"Received audio file: {audio_file.filename}, content_type: {audio_file.content_type}")
+        
+        # Save audio file temporarily with original extension
+        file_extension = os.path.splitext(audio_file.filename)[1].lower()
+        if not file_extension:
+            file_extension = ".webm" if "webm" in audio_file.content_type else ".wav"
+            
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=file_extension)
+        content = await audio_file.read()
+        temp_file.write(content)
+        temp_file.close()
+        
+        print(f"Saved temporary file: {temp_file.name}, size: {os.path.getsize(temp_file.name)} bytes")
+        
+        # Convert to WAV if not already
+        wav_file = temp_file.name
+        if not file_extension.lower() == '.wav':
+            print(f"Converting {file_extension} to WAV...")
+            try:
+                output_wav = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+                output_wav.close()
                 
-                if transcription and speech_metrics:
-                    # Display Transcription
-                    st.markdown('<div class="feedback-container">', unsafe_allow_html=True)
-                    st.subheader("📝 Transcription")
-                    st.info(transcription)
-                    st.markdown('</div>', unsafe_allow_html=True)
+                # Use FFmpeg for conversion
+                sound = AudioSegment.from_file(temp_file.name)
+                sound.export(output_wav.name, format="wav")
+                
+                # Replace the original file path with the WAV file path
+                os.unlink(temp_file.name)
+                wav_file = output_wav.name
+                print(f"Conversion successful: {wav_file}, size: {os.path.getsize(wav_file)} bytes")
+            except Exception as e:
+                print(f"Conversion error: {str(e)}")
+                raise HTTPException(status_code=400, detail=f"Failed to convert audio file: {str(e)}")
+        
+        # Get transcription and metrics
+        try:
+            transcription, metrics, visualization_data = analyze_audio(wav_file)
+            print(f"Audio analysis successful: transcription length = {len(transcription)}")
+            
+            # Get personality scores
+            personality_scores = personality_detection(transcription)
+            
+            # Generate feedback based on metrics and transcription
+            feedback = generate_feedback(transcription, metrics)
+            
+            # Include personality scores in the metrics
+            metrics["personality_scores"] = personality_scores
+            metrics["visualization_data"] = visualization_data
+            
+            # Clean up temp file
+            os.unlink(wav_file)
+            
+            return {
+                "transcription": transcription,
+                "metrics": metrics,
+                "feedback": feedback
+            }
+        except Exception as e:
+            print(f"Error analyzing audio: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Error processing audio: {str(e)}")
+            
+    except Exception as e:
+        print(f"Unexpected error in analyze_speech_endpoint: {str(e)}")
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=f"Error analyzing speech: {str(e)}")
 
-                    # Display Metrics
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.markdown('<div class="metric-container">', unsafe_allow_html=True)
-                        st.metric("🎵 Average Pitch", f"{speech_metrics['average_pitch']:.2f} Hz")
-                        st.markdown('</div>', unsafe_allow_html=True)
-                    
-                    with col2:
-                        st.markdown('<div class="metric-container">', unsafe_allow_html=True)
-                        st.metric("⏱️ Pauses", f"{speech_metrics['pause_count']}")
-                        st.markdown('</div>', unsafe_allow_html=True)
+@app.post("/analyze-answer/", response_model=ContentAnalysisResponse)
+async def api_analyze_answer(
+    audio_file: UploadFile = File(...),
+    question: str = Form(...),
+    job_description: Optional[str] = Form(None),
+    resume_text: Optional[str] = Form(None)
+):
+    file_extension = audio_file.filename.split('.')[-1].lower()
+    
+    if file_extension not in SUPPORTED_FORMATS:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Unsupported file format. Please upload one of: {', '.join(SUPPORTED_FORMATS.keys())}"
+        )
+    
+    try:
+        # Save uploaded file to temp location
+        temp_dir = tempfile.gettempdir()
+        temp_input = os.path.join(temp_dir, f"input_audio.{file_extension}")
+        
+        # Read file content
+        contents = await audio_file.read()
+        
+        # Save file to temp location
+        with open(temp_input, 'wb') as f:
+            f.write(contents)
+        
+        # Convert to WAV if needed
+        if file_extension != 'wav':
+            temp_wav = convert_to_wav(temp_input, file_extension)
+        else:
+            temp_wav = temp_input
+        
+        # Analyze audio content
+        analysis, score = analyze_answer_content(
+            temp_wav, 
+            question, 
+            job_description=job_description, 
+            resume_text=resume_text
+        )
+        
+        # Clean up temp files
+        if temp_input != temp_wav and os.path.exists(temp_input):
+            os.remove(temp_input)
+        if os.path.exists(temp_wav):
+            os.remove(temp_wav)
+        
+        return ContentAnalysisResponse(
+            analysis=analysis,
+            score=score
+        )
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-                    with col3:
-                        st.markdown('<div class="metric-container">', unsafe_allow_html=True)
-                        st.metric("📝 Word Count", str(len(transcription.split())))
-                        st.markdown('</div>', unsafe_allow_html=True)
+@app.post("/analyze-personality/", response_class=JSONResponse)
+async def api_analyze_personality(text: str = Form(...)):
+    """
+    Analyze text to detect personality traits using the bert-base-personality model.
+    """
+    try:
+        if not text or len(text.strip()) < 10:
+            raise HTTPException(status_code=400, detail="Text is too short for meaningful personality analysis")
+        
+        # Check for inappropriate content
+        if contains_inappropriate_content(text):
+            raise HTTPException(status_code=400, detail="The text contains potentially inappropriate content")
+        
+        # Use the existing personality_detection function
+        personality_scores = personality_detection(text)
+        
+        return JSONResponse(content=personality_scores)
+    
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=f"Error analyzing personality: {str(e)}")
 
-                    # Display Personality Traits
-                    st.markdown('<div class="feedback-container">', unsafe_allow_html=True)
-                    st.subheader("👤 Personality Traits Analysis")
-                    personality_scores = speech_metrics['personality_scores']
-                    for trait, score in personality_scores.items():
-                        st.metric(trait, f"{score:.2f}")
-                    st.markdown('</div>', unsafe_allow_html=True)
+@app.websocket("/ws/personality/")
+async def personality_websocket(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time personality analysis.
+    """
+    await websocket.accept()
+    try:
+        while True:
+            # Receive text from the client
+            text = await websocket.receive_text()
+            
+            if not text or len(text.strip()) < 10:
+                await websocket.send_json({
+                    "error": "Text is too short for meaningful analysis",
+                    "scores": {
+                        "Extroversion": 0,
+                        "Neuroticism": 0,
+                        "Agreeableness": 0,
+                        "Conscientiousness": 0,
+                        "Openness": 0
+                    }
+                })
+                continue
+            
+            # Check for inappropriate content
+            if contains_inappropriate_content(text):
+                await websocket.send_json({
+                    "error": "The text contains potentially inappropriate content",
+                    "scores": {
+                        "Extroversion": 0,
+                        "Neuroticism": 0,
+                        "Agreeableness": 0,
+                        "Conscientiousness": 0,
+                        "Openness": 0
+                    }
+                })
+                continue
+            
+            # Analyze personality
+            try:
+                personality_scores = personality_detection(text)
+                
+                # Send the result back
+                await websocket.send_json({
+                    "scores": personality_scores
+                })
+            except Exception as e:
+                await websocket.send_json({
+                    "error": f"Error analyzing personality: {str(e)}",
+                    "scores": {
+                        "Extroversion": 0,
+                        "Neuroticism": 0,
+                        "Agreeableness": 0,
+                        "Conscientiousness": 0,
+                        "Openness": 0
+                    }
+                })
+                
+    except WebSocketDisconnect:
+        print("Client disconnected")
 
-                    # Display Pitch Variation Graph
-                    st.markdown('<div class="feedback-container">', unsafe_allow_html=True)
-                    st.subheader("📊 Pitch Variation Analysis")
-                    pitch_data = [segment['pitch'] for segment in speech_metrics['segments']]
-                    st.line_chart(pitch_data)
-                    st.markdown('</div>', unsafe_allow_html=True)
-
-                    # Generate and Display AI Feedback
-                    st.markdown('<div class="feedback-container">', unsafe_allow_html=True)
-                    st.subheader("🤖 AI Speech Coach Feedback")
-                    with st.spinner("Generating detailed feedback..."):
-                        feedback = generate_feedback(transcription, speech_metrics)
-                        st.markdown(feedback)
-                    st.markdown('</div>', unsafe_allow_html=True)
-                else:
-                    st.error("Please upload a valid audio file containing clear speech.")
-
-if __name__ == '__main__':
-    main()
+# For running the application locally
+if __name__ == "__main__":
+    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)

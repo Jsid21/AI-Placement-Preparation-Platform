@@ -1,0 +1,9 @@
+opencv-python
+mediapipe
+numpy
+deepface
+tf-keras
+fastapi
+uvicorn
+ollama
+python-multipart
