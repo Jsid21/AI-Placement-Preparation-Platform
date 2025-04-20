@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { useState } from 'react';
+import { TestComponent } from '../components/TestComponent';
 import { ResumeUpload } from '../components/ResumeUpload';
 import { Questions } from '../components/Questions';
 
@@ -15,6 +16,8 @@ export default function Home() {
       <h1 className="text-3xl font-bold mb-8 text-center">
         AI Placement Preparation Platform
       </h1>
+      
+      <TestComponent />
       
       <div className="max-w-4xl mx-auto">
         <ResumeUpload 
