@@ -26,6 +26,7 @@ async def parse_resume_and_generate_questions(
     background_tasks: BackgroundTasks,
     resume: UploadFile = File(...),
     job_role: str = Form(...),
+    num_questions: int = Form(5),  # Default to 5 questions if not specified
 ):
     """
     Parse a resume PDF and generate interview questions based on the resume and job role.
@@ -34,9 +35,13 @@ async def parse_resume_and_generate_questions(
     if resume.content_type != "application/pdf":
         raise HTTPException(status_code=400, detail="Only PDF files are accepted")
     
+    # Validate number of questions
+    if num_questions < 3 or num_questions > 15:
+        num_questions = 5  # Reset to default if outside valid range
+    
     try:
         start_time = time.time()
-        logger.info(f"Processing resume for job role: {job_role}")
+        logger.info(f"Processing resume for job role: {job_role}, requesting {num_questions} questions")
         
         # Extract text from the resume
         resume_text = await extract_resume_text(resume)
@@ -48,7 +53,7 @@ async def parse_resume_and_generate_questions(
         cleaned_text = remove_personal_info(resume_text)
         
         # Generate interview questions
-        questions = await generate_interview_questions(cleaned_text, job_role)
+        questions = await generate_interview_questions(cleaned_text, job_role, num_questions)
         
         # Log completion time for performance monitoring
         elapsed_time = time.time() - start_time

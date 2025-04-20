@@ -5,6 +5,7 @@ from fastapi import UploadFile
 import os
 import logging
 
+# Configure logging
 logger = logging.getLogger(__name__)
 
 # Maximum file size (10MB)
@@ -30,17 +31,22 @@ async def extract_resume_text(resume_file: UploadFile) -> str:
         with open(temp_file_path, 'rb') as file:
             try:
                 pdf_reader = PyPDF2.PdfReader(file)
-                for page_num in range(len(pdf_reader.pages)):
-                    text += pdf_reader.pages[page_num].extract_text()
+                logger.info(f"PDF has {len(pdf_reader.pages)} pages")
                 
-                logger.info(f"Successfully extracted text from PDF. Character count: {len(text)}")
+                for page_num in range(len(pdf_reader.pages)):
+                    page_text = pdf_reader.pages[page_num].extract_text()
+                    text += page_text + "\n"
+                    logger.info(f"Extracted {len(page_text)} characters from page {page_num+1}")
                 
                 if not text.strip():
                     logger.warning("Extracted text is empty. The PDF might be scanned or have restricted permissions.")
+                    # Try a different extraction approach for scanned PDFs - simplified for now
+                    logger.info("PDF might contain images instead of text")
             except Exception as e:
                 logger.error(f"Error extracting text from PDF: {str(e)}")
                 raise ValueError(f"Could not read PDF file: {str(e)}")
         
+        logger.info(f"Total extracted text length: {len(text)}")
         return text
     finally:
         # Clean up the temporary file

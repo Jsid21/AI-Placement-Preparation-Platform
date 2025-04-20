@@ -11,6 +11,7 @@ interface ResumeUploadProps {
 export function ResumeUpload({ setQuestions, setLoading, setError }: ResumeUploadProps) {
   const [file, setFile] = useState<File | null>(null);
   const [jobRole, setJobRole] = useState('');
+  const [numQuestions, setNumQuestions] = useState(5);
   const [fileError, setFileError] = useState<string | null>(null);
   const [jobRoleError, setJobRoleError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -60,6 +61,7 @@ export function ResumeUpload({ setQuestions, setLoading, setError }: ResumeUploa
       const formData = new FormData();
       formData.append('resume', file!);
       formData.append('job_role', jobRole);
+      formData.append('num_questions', numQuestions.toString());
       
       const response = await fetch('http://localhost:8000/api/parse-resume', {
         method: 'POST',
@@ -135,6 +137,46 @@ export function ResumeUpload({ setQuestions, setLoading, setError }: ResumeUploa
               {jobRoleError}
             </p>
           )}
+        </div>
+        
+        <div className="mb-4">
+          <label className="block text-gray-700 mb-2" htmlFor="numQuestions">
+            Number of Questions
+          </label>
+          <div className="flex items-center">
+            <button 
+              type="button" 
+              onClick={() => setNumQuestions(prev => Math.max(3, prev - 1))}
+              className="px-3 py-2 bg-gray-200 rounded-l-md hover:bg-gray-300"
+            >
+              -
+            </button>
+            <input
+              type="number"
+              id="numQuestions"
+              value={numQuestions}
+              onChange={(e) => {
+                const val = parseInt(e.target.value);
+                if (!isNaN(val) && val >= 3 && val <= 15) {
+                  setNumQuestions(val);
+                }
+              }}
+              min={3}
+              max={15}
+              className="w-16 text-center px-3 py-2 border-t border-b border-gray-300"
+              aria-label="Number of questions"
+            />
+            <button 
+              type="button" 
+              onClick={() => setNumQuestions(prev => Math.min(15, prev + 1))}
+              className="px-3 py-2 bg-gray-200 rounded-r-md hover:bg-gray-300"
+            >
+              +
+            </button>
+            <span className="ml-3 text-gray-600">
+              (3-15 questions)
+            </span>
+          </div>
         </div>
         
         <button
