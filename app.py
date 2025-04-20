@@ -7,7 +7,7 @@ import numpy as np
 from typing import List, Optional
 from pydub import AudioSegment
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException, BackgroundTasks
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException, BackgroundTasks, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -18,6 +18,15 @@ import speech_recognition as sr
 import librosa
 import requests
 from transformers import BertTokenizer, BertForSequenceClassification
+import shutil
+
+# Configure FFmpeg path - use the one installed by winget
+ffmpeg_path = shutil.which('ffmpeg')
+if ffmpeg_path:
+    AudioSegment.converter = ffmpeg_path
+    print(f"Using FFmpeg from: {ffmpeg_path}")
+else:
+    print("Warning: FFmpeg not found in PATH. Audio processing features may not work correctly.")
 
 # Suppress warnings and configure environment
 warnings.filterwarnings('ignore')
@@ -655,56 +664,75 @@ async def api_generate_questions(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/analyze-speech/", response_model=SpeechAnalysisResponse)
-async def api_analyze_speech(audio_file: UploadFile = File(...)):
-    file_extension = audio_file.filename.split('.')[-1].lower()
-    
-    if file_extension not in SUPPORTED_FORMATS:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Unsupported file format. Please upload one of: {', '.join(SUPPORTED_FORMATS.keys())}"
-        )
-    
+@app.post("/analyze-speech/")
+async def analyze_speech_endpoint(audio_file: UploadFile = File(...)):
     try:
-        # Save uploaded file to temp location
-        temp_dir = tempfile.gettempdir()
-        temp_input = os.path.join(temp_dir, f"input_audio.{file_extension}")
+        print(f"Received audio file: {audio_file.filename}, content_type: {audio_file.content_type}")
         
-        # Read file content
-        contents = await audio_file.read()
+        # Save audio file temporarily with original extension
+        file_extension = os.path.splitext(audio_file.filename)[1].lower()
+        if not file_extension:
+            file_extension = ".webm" if "webm" in audio_file.content_type else ".wav"
+            
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=file_extension)
+        content = await audio_file.read()
+        temp_file.write(content)
+        temp_file.close()
         
-        # Save file to temp location
-        with open(temp_input, 'wb') as f:
-            f.write(contents)
+        print(f"Saved temporary file: {temp_file.name}, size: {os.path.getsize(temp_file.name)} bytes")
         
-        # Analyze audio
-        transcription, speech_metrics = analyze_audio(temp_input)
+        # Convert to WAV if not already
+        wav_file = temp_file.name
+        if not file_extension.lower() == '.wav':
+            print(f"Converting {file_extension} to WAV...")
+            try:
+                output_wav = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+                output_wav.close()
+                
+                # Use FFmpeg for conversion
+                sound = AudioSegment.from_file(temp_file.name)
+                sound.export(output_wav.name, format="wav")
+                
+                # Replace the original file path with the WAV file path
+                os.unlink(temp_file.name)
+                wav_file = output_wav.name
+                print(f"Conversion successful: {wav_file}, size: {os.path.getsize(wav_file)} bytes")
+            except Exception as e:
+                print(f"Conversion error: {str(e)}")
+                raise HTTPException(status_code=400, detail=f"Failed to convert audio file: {str(e)}")
         
-        # Generate feedback
-        feedback = generate_feedback(transcription, speech_metrics)
-        
-        # Create response
-        response = SpeechAnalysisResponse(
-            transcription=transcription,
-            metrics=SpeechMetrics(
-                average_pitch=speech_metrics['average_pitch'],
-                pause_count=speech_metrics['pause_count'],
-                average_pause_duration=speech_metrics['average_pause_duration'],
-                word_count=speech_metrics['word_count'],
-                personality_scores=PersonalityScore(**speech_metrics['personality_scores']),
-                visualization_data=speech_metrics['visualization_data']  # Add visualization data to response
-            ),
-            feedback=feedback
-        )
-        
-        # Clean up temp files
-        os.remove(temp_input)
-        
-        return response
-    except HTTPException as e:
-        raise e
+        # Get transcription and metrics
+        try:
+            transcription, metrics, visualization_data = analyze_audio(wav_file)
+            print(f"Audio analysis successful: transcription length = {len(transcription)}")
+            
+            # Get personality scores
+            personality_scores = personality_detection(transcription)
+            
+            # Generate feedback based on metrics and transcription
+            feedback = generate_feedback(transcription, metrics)
+            
+            # Include personality scores in the metrics
+            metrics["personality_scores"] = personality_scores
+            metrics["visualization_data"] = visualization_data
+            
+            # Clean up temp file
+            os.unlink(wav_file)
+            
+            return {
+                "transcription": transcription,
+                "metrics": metrics,
+                "feedback": feedback
+            }
+        except Exception as e:
+            print(f"Error analyzing audio: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Error processing audio: {str(e)}")
+            
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Unexpected error in analyze_speech_endpoint: {str(e)}")
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=f"Error analyzing speech: {str(e)}")
 
 @app.post("/analyze-answer/", response_model=ContentAnalysisResponse)
 async def api_analyze_answer(
@@ -761,6 +789,90 @@ async def api_analyze_answer(
         raise e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/analyze-personality/", response_class=JSONResponse)
+async def api_analyze_personality(text: str = Form(...)):
+    """
+    Analyze text to detect personality traits using the bert-base-personality model.
+    """
+    try:
+        if not text or len(text.strip()) < 10:
+            raise HTTPException(status_code=400, detail="Text is too short for meaningful personality analysis")
+        
+        # Check for inappropriate content
+        if contains_inappropriate_content(text):
+            raise HTTPException(status_code=400, detail="The text contains potentially inappropriate content")
+        
+        # Use the existing personality_detection function
+        personality_scores = personality_detection(text)
+        
+        return JSONResponse(content=personality_scores)
+    
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=f"Error analyzing personality: {str(e)}")
+
+@app.websocket("/ws/personality/")
+async def personality_websocket(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time personality analysis.
+    """
+    await websocket.accept()
+    try:
+        while True:
+            # Receive text from the client
+            text = await websocket.receive_text()
+            
+            if not text or len(text.strip()) < 10:
+                await websocket.send_json({
+                    "error": "Text is too short for meaningful analysis",
+                    "scores": {
+                        "Extroversion": 0,
+                        "Neuroticism": 0,
+                        "Agreeableness": 0,
+                        "Conscientiousness": 0,
+                        "Openness": 0
+                    }
+                })
+                continue
+            
+            # Check for inappropriate content
+            if contains_inappropriate_content(text):
+                await websocket.send_json({
+                    "error": "The text contains potentially inappropriate content",
+                    "scores": {
+                        "Extroversion": 0,
+                        "Neuroticism": 0,
+                        "Agreeableness": 0,
+                        "Conscientiousness": 0,
+                        "Openness": 0
+                    }
+                })
+                continue
+            
+            # Analyze personality
+            try:
+                personality_scores = personality_detection(text)
+                
+                # Send the result back
+                await websocket.send_json({
+                    "scores": personality_scores
+                })
+            except Exception as e:
+                await websocket.send_json({
+                    "error": f"Error analyzing personality: {str(e)}",
+                    "scores": {
+                        "Extroversion": 0,
+                        "Neuroticism": 0,
+                        "Agreeableness": 0,
+                        "Conscientiousness": 0,
+                        "Openness": 0
+                    }
+                })
+                
+    except WebSocketDisconnect:
+        print("Client disconnected")
 
 # For running the application locally
 if __name__ == "__main__":

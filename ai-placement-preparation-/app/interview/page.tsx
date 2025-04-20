@@ -13,6 +13,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { Progress } from "@/components/ui/progress"
+import PersonalityTracker from '@/components/personality-tracker';
 
 // Interface definitions
 export interface PersonalityScore {
@@ -108,101 +109,17 @@ export default function InterviewPage() {
     }
   };
 
-  // Function to analyze recorded answer
-  const analyzeAnswer = async (audioBlob: Blob, questionText: string) => {
-    const formData = new FormData();
-    formData.append("audio_file", audioBlob, "answer.wav");
-    formData.append("question", questionText);
-    
-    if (resumeText) {
-      formData.append("resume_text", resumeText);
-    }
-    
-    if (jobDescription) {
-      formData.append("job_description", jobDescription);
-    }
-
-    // First analyze the text content
-    const contentResponse = await fetch('/api/analyze-answer/', {
-      method: 'POST',
-      body: formData,
-    });
-
-    if (!contentResponse.ok) {
-      const errorData = await contentResponse.json();
-      throw new Error(errorData.detail || "Failed to analyze answer");
-    }
-
-    const contentData = await contentResponse.json();
-
-    // Then analyze the speech patterns
-    const speechFormData = new FormData();
-    speechFormData.append("audio_file", audioBlob, "answer.wav");
-
-    const speechResponse = await fetch('/api/analyze-speech/', {
-      method: 'POST',
-      body: speechFormData,
-    });
-
-    if (!speechResponse.ok) {
-      const errorData = await speechResponse.json();
-      throw new Error(errorData.detail || "Failed to analyze speech");
-    }
-
-    const speechData = await speechResponse.json();
-
-    setScore(contentData.score);
-    return { contentAnalysis: contentData.analysis, speechAnalysis: speechData };
-  };
-
-  // Handle resume upload
-  const handleResumeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    try {
-      const file = e.target.files?.[0];
-      if (!file) return;
-
-      toast({
-        title: "Analyzing resume...",
-        description: "Please wait while we generate questions",
-      });
-
-      const generatedQuestions = await analyzeResume(file);
-      
-      if (generatedQuestions.length === 0) {
-        throw new Error("No questions were generated");
-      }
-
-      setQuestions(generatedQuestions);
-      setCurrentQuestion(0);
-      setTextAnalysis("");
-      setSpeechAnalysis(null);
-      setAudioBlob(null);
-      setScore(null);
-      
-      toast({
-        title: "Resume analyzed",
-        description: `Generated ${generatedQuestions.length} interview questions`,
-      });
-    } catch (error) {
-      console.error("Resume analysis error:", error);
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to analyze resume",
-        variant: "destructive",
-      });
-    }
-  };
-
-  // Handle job description input
-  const handleJobDescriptionChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setJobDescription(e.target.value);
-  };
-
-  // Start audio recording
+  // Update your startRecording function to use a supported format
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
+      
+      // Explicitly set audio format to WAV
+      const options = { 
+        mimeType: 'audio/webm',  // WebM is well supported by browsers
+      };
+      
+      const mediaRecorder = new MediaRecorder(stream, options);
       mediaRecorderRef.current = mediaRecorder;
       chunksRef.current = [];
 
@@ -211,20 +128,20 @@ export default function InterviewPage() {
       };
 
       mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(chunksRef.current, { type: 'audio/wav' });
+        const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
         setAudioBlob(audioBlob);
       };
 
       mediaRecorder.start();
       setIsRecording(true);
       
-      // Setup audio visualization if needed
+      // Set up audio visualization
       setupAudioVisualization(stream);
     } catch (error) {
       console.error("Recording error:", error);
       toast({
         title: "Error",
-        description: "Failed to start recording",
+        description: "Failed to start recording. Please ensure your microphone is connected.",
         variant: "destructive",
       });
     }
@@ -272,6 +189,114 @@ export default function InterviewPage() {
       }
       setVisualizerData([]);
     }
+  };
+
+  // Update the analyzeAnswer function to convert to a supported format
+  const analyzeAnswer = async (audioBlob: Blob, questionText: string) => {
+    try {
+      const formData = new FormData();
+      
+      // Check if the audio format is supported
+      const fileExtension = audioBlob.type.includes('webm') ? 'webm' : 
+                            audioBlob.type.includes('mp3') ? 'mp3' : 
+                            audioBlob.type.includes('wav') ? 'wav' : 'webm';
+      
+      // Use the detected extension
+      formData.append("audio_file", audioBlob, `answer.${fileExtension}`);
+      formData.append("question", questionText);
+      
+      if (resumeText) {
+        formData.append("resume_text", resumeText);
+      }
+      
+      if (jobDescription) {
+        formData.append("job_description", jobDescription);
+      }
+
+      // First analyze the text content
+      const contentResponse = await fetch('/api/analyze-answer/', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!contentResponse.ok) {
+        const errorData = await contentResponse.json();
+        throw new Error(errorData.detail || "Failed to analyze answer");
+      }
+
+      const contentData = await contentResponse.json();
+
+      // Then analyze the speech patterns using the same audio blob
+      const speechFormData = new FormData();
+      speechFormData.append("audio_file", audioBlob, `answer.${fileExtension}`);
+
+      const speechResponse = await fetch('/api/analyze-speech/', {
+        method: 'POST',
+        body: speechFormData,
+      });
+
+      if (!speechResponse.ok) {
+        let errorDetail = "Failed to analyze speech";
+        try {
+          const errorData = await speechResponse.json();
+          errorDetail = errorData.detail || errorDetail;
+        } catch (e) {
+          console.error("Error parsing error response:", e);
+        }
+        throw new Error(errorDetail);
+      }
+
+      const speechData = await speechResponse.json();
+
+      setScore(contentData.score);
+      return { contentAnalysis: contentData.analysis, speechAnalysis: speechData };
+    } catch (error) {
+      console.error("Audio analysis error:", error);
+      throw error;
+    }
+  };
+
+  // Handle resume upload
+  const handleResumeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    try {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      toast({
+        title: "Analyzing resume...",
+        description: "Please wait while we generate questions",
+      });
+
+      const generatedQuestions = await analyzeResume(file);
+      
+      if (generatedQuestions.length === 0) {
+        throw new Error("No questions were generated");
+      }
+
+      setQuestions(generatedQuestions);
+      setCurrentQuestion(0);
+      setTextAnalysis("");
+      setSpeechAnalysis(null);
+      setAudioBlob(null);
+      setScore(null);
+      
+      toast({
+        title: "Resume analyzed",
+        description: `Generated ${generatedQuestions.length} interview questions`,
+      });
+    } catch (error) {
+      console.error("Resume analysis error:", error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to analyze resume",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Handle job description input
+  const handleJobDescriptionChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setJobDescription(e.target.value);
   };
 
   // Handle analysis of recorded answer
@@ -438,7 +463,7 @@ export default function InterviewPage() {
                 <div className="mt-4">
                   <h3 className="font-medium mb-2">Your Recording</h3>
                   <audio controls className="w-full">
-                    <source src={URL.createObjectURL(audioBlob)} type="audio/wav" />
+                    <source src={URL.createObjectURL(audioBlob)} type="audio/webm" />
                   </audio>
                 </div>
               )}
@@ -552,6 +577,13 @@ export default function InterviewPage() {
                   )}
                 </Card>
               )}
+
+              <div className="mt-6">
+                <PersonalityTracker 
+                  text={speechAnalysis?.transcription || ""} 
+                  isRealTime={isRecording} 
+                />
+              </div>
 
               <div className="flex justify-between mt-6">
                 <Button
