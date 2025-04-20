@@ -1,7 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-import speech_recognition as sr
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import torch
 import tempfile
@@ -10,6 +9,13 @@ import uvicorn
 from pydantic import BaseModel
 from typing import Dict, List
 import logging
+import subprocess
+import json
+import wave
+import speech_recognition as sr
+from pydub import AudioSegment
+from pydub.silence import split_on_silence
+import io
 
 # Configure logging
 logging.basicConfig(
@@ -43,6 +49,10 @@ try:
 except Exception as e:
     logger.error(f"Failed to load model: {str(e)}")
     # We'll continue and handle this in the endpoints
+
+# Initialize the speech recognizer
+recognizer = sr.Recognizer()
+logger.info("Speech recognition initialized")
 
 # Emotion labels
 EMOTION_LABELS = ['joy', 'sadness', 'anger', 'fear', 'surprise', 'love']
@@ -84,20 +94,65 @@ def analyze_text_emotion(text: str) -> Dict:
         logger.error(f"Error analyzing text: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error in analysis: {str(e)}")
 
-def speech_to_text(audio_path: str) -> str:
-    """Convert speech audio to text using Google's speech recognition"""
-    recognizer = sr.Recognizer()
+def convert_to_wav(input_file: str) -> str:
+    """Convert audio file to 16kHz WAV format"""
+    output_file = input_file + ".wav"
     try:
-        with sr.AudioFile(audio_path) as source:
+        subprocess.run([
+            "ffmpeg", "-i", input_file, 
+            "-ar", "16000", "-ac", "1", "-y",
+            output_file
+        ], check=True, capture_output=True)
+        return output_file
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Error converting audio: {e.stderr.decode() if e.stderr else str(e)}")
+        raise HTTPException(status_code=500, detail="Error converting audio format")
+
+def speech_to_text(audio_path: str) -> str:
+    """Convert speech audio to text using SpeechRecognition library"""
+    # Convert audio to WAV format if needed
+    if not audio_path.lower().endswith('.wav'):
+        wav_path = convert_to_wav(audio_path)
+    else:
+        wav_path = audio_path
+    
+    try:
+        # Load the audio file
+        with sr.AudioFile(wav_path) as source:
+            # Read the audio data
             audio_data = recognizer.record(source)
+            
+            # Convert speech to text using Google's API (doesn't require API key)
+            # You can replace with recognizer.recognize_sphinx() for fully offline
             text = recognizer.recognize_google(audio_data)
-            return text
+            
+        # Clean up temporary file if we created one
+        if wav_path != audio_path and os.path.exists(wav_path):
+            os.remove(wav_path)
+            
+        if not text.strip():
+            return "No speech detected"
+            
+        return text
     except sr.UnknownValueError:
-        raise HTTPException(status_code=400, detail="Could not understand audio")
+        logger.warning("Speech recognition could not understand audio")
+        return "No speech detected"
     except sr.RequestError as e:
-        raise HTTPException(status_code=503, detail=f"Speech recognition service unavailable: {str(e)}")
+        logger.error(f"Could not request results from service: {str(e)}")
+        # If Google API fails, try offline sphinx
+        try:
+            with sr.AudioFile(wav_path) as source:
+                audio_data = recognizer.record(source)
+                text = recognizer.recognize_sphinx(audio_data)
+                return text
+        except Exception as e2:
+            logger.error(f"Backup recognition failed: {str(e2)}")
+            raise HTTPException(status_code=500, detail="Speech recognition service unavailable")
     except Exception as e:
         logger.error(f"Error in speech to text: {str(e)}")
+        # Clean up temporary file if we created one
+        if wav_path != audio_path and os.path.exists(wav_path):
+            os.remove(wav_path)
         raise HTTPException(status_code=500, detail=f"Error processing audio: {str(e)}")
 
 # API endpoints
