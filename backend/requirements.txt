@@ -9,3 +9,4 @@ librosa
 numpy
 soundfile
 pydub
+textblob

@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, RadialBarChart, RadialBar, Legend, LineChart, Line } from "recharts";
 
 export default function FeedbackPage() {
   const [analysisResults, setAnalysisResults] = useState<any[]>([]);
@@ -37,6 +37,8 @@ export default function FeedbackPage() {
     Pauses: res.num_pauses,
     Duration: res.duration_sec,
     PauseTime: res.total_pauses_sec,
+    Polarity: res.sentiment?.polarity,
+    Subjectivity: res.sentiment?.subjectivity,
   }));
 
   return (
@@ -45,9 +47,9 @@ export default function FeedbackPage() {
         <h1 className="text-3xl font-bold mb-6 text-[#1a237e] text-center">
           <span role="img" aria-label="feedback">📝</span> Your Interview Feedback
         </h1>
-        <div className="mb-10 flex flex-col md:flex-row gap-8 items-center justify-center">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10">
           {/* Radar Chart for overall features */}
-          <div className="w-full md:w-1/2">
+          <div className="bg-white rounded-xl shadow-lg p-6">
             <h2 className="text-lg font-semibold mb-2 text-[#3b82f6] text-center">Speech Quality Overview</h2>
             <ResponsiveContainer width="100%" height={300}>
               <RadarChart data={chartData}>
@@ -56,11 +58,12 @@ export default function FeedbackPage() {
                 <PolarRadiusAxis />
                 <Radar name="Pitch" dataKey="Pitch" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.3} />
                 <Radar name="Pace" dataKey="Pace" stroke="#1a237e" fill="#1a237e" fillOpacity={0.2} />
+                <Tooltip />
               </RadarChart>
             </ResponsiveContainer>
           </div>
           {/* Bar Chart for Pauses */}
-          <div className="w-full md:w-1/2">
+          <div className="bg-white rounded-xl shadow-lg p-6">
             <h2 className="text-lg font-semibold mb-2 text-[#3b82f6] text-center">Pauses & Duration</h2>
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={chartData}>
@@ -71,6 +74,51 @@ export default function FeedbackPage() {
                 <Bar dataKey="PauseTime" fill="#1a237e" />
                 <Bar dataKey="Duration" fill="#60a5fa" />
               </BarChart>
+            </ResponsiveContainer>
+          </div>
+          {/* Radial Bar Chart for Sentiment */}
+          <div className="bg-white rounded-xl shadow-lg p-6">
+            <h2 className="text-lg font-semibold mb-2 text-[#3b82f6] text-center">Sentiment Gauge</h2>
+            <ResponsiveContainer width="100%" height={250}>
+              <RadialBarChart
+                cx="50%"
+                cy="50%"
+                innerRadius="60%"
+                outerRadius="100%"
+                barSize={18}
+                data={analysisResults.map((res, idx) => ({
+                  name: `Q${idx + 1}`,
+                  polarity: ((res.sentiment?.polarity ?? 0) + 1) * 50,
+                }))}
+              >
+                <RadialBar
+                  label={{ position: "insideStart", fill: "#fff" }}
+                  background
+                  dataKey="polarity"
+                  fill="#34d399"
+                />
+                <Legend
+                  iconSize={10}
+                  layout="vertical"
+                  verticalAlign="middle"
+                  align="right"
+                />
+                <Tooltip />
+              </RadialBarChart>
+            </ResponsiveContainer>
+          </div>
+          {/* Line Chart for Feature Trends */}
+          <div className="bg-white rounded-xl shadow-lg p-6">
+            <h2 className="text-lg font-semibold mb-2 text-[#3b82f6] text-center">Feature Trends Across Questions</h2>
+            <ResponsiveContainer width="100%" height={250}>
+              <LineChart data={chartData}>
+                <XAxis dataKey="name" />
+                <YAxis />
+                <Tooltip />
+                <Line type="monotone" dataKey="Pitch" stroke="#6366f1" strokeWidth={2} />
+                <Line type="monotone" dataKey="Pace" stroke="#f59e42" strokeWidth={2} />
+                <Line type="monotone" dataKey="Polarity" stroke="#34d399" strokeWidth={2} dot={{ r: 5 }} />
+              </LineChart>
             </ResponsiveContainer>
           </div>
         </div>
@@ -91,6 +139,12 @@ export default function FeedbackPage() {
                   <li>Volume: {res.avg_volume?.toFixed(4)}</li>
                   <li>Pauses: {res.num_pauses?.toFixed(1)}</li>
                   <li>Total Pause Time: {res.total_pauses_sec?.toFixed(2)} sec</li>
+                  {res.sentiment && (
+                    <>
+                      <li>Sentiment Polarity: {res.sentiment.polarity?.toFixed(2)}</li>
+                      <li>Subjectivity: {res.sentiment.subjectivity?.toFixed(2)}</li>
+                    </>
+                  )}
                 </ul>
               )}
             </div>

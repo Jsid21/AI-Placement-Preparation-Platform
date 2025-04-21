@@ -1,9 +1,10 @@
 import os
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, Depends
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, Depends, Request
 from fastapi.responses import JSONResponse
 from app.services.resume_service import extract_resume_text, remove_personal_info
 from app.services.question_service import generate_interview_questions
 from app.services.audio_analysis_service import extract_audio_features
+from app.services.sentiment_service import analyze_sentiment
 from typing import List, Optional
 import logging
 import time
@@ -110,3 +111,10 @@ async def analyze_audio(question_id: str = Form(...)):
     audio_path = os.path.join(AUDIO_DIR, latest_file)
     features = extract_audio_features(audio_path)
     return features
+
+@router.post("/analyze-sentiment")
+async def analyze_sentiment_api(request: Request):
+    data = await request.json()
+    text = data.get("text", "")
+    result = analyze_sentiment(text)
+    return result

@@ -21,6 +21,7 @@ export function Questions({ questions }: QuestionsProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [analysisResults, setAnalysisResults] = useState<any[]>([]);
+  const [sentimentPerQuestion, setSentimentPerQuestion] = useState<{ [key: number]: any }>({});
 
   // Setup Speech Recognition
   useEffect(() => {
@@ -209,6 +210,26 @@ export function Questions({ questions }: QuestionsProps) {
     }
   };
 
+  async function analyzeSentimentForAnswer(questionIdx: number, answer: string) {
+    if (!answer) return;
+    try {
+      const res = await fetch("http://localhost:8000/api/analyze-sentiment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: answer }),
+      });
+      if (res.ok) {
+        const sentiment = await res.json();
+        setSentimentPerQuestion((prev) => ({
+          ...prev,
+          [questionIdx]: sentiment,
+        }));
+      }
+    } catch (e) {
+      // Optionally handle error
+    }
+  }
+
   const handleNextQuestion = () => {
     if (activeQuestion < questions.length - 1) {
       setActiveQuestion(activeQuestion + 1);
@@ -228,9 +249,30 @@ export function Questions({ questions }: QuestionsProps) {
       ...answers,
       [activeQuestion]: e.target.value
     });
+    analyzeSentimentForAnswer(activeQuestion, e.target.value);
   };
 
   const handleSubmitInterview = async () => {
+    // For each question, ensure sentiment is available
+    const updatedSentiment: { [key: number]: any } = { ...sentimentPerQuestion };
+    for (let q = 0; q < questions.length; q++) {
+      if (!updatedSentiment[q] && answers[q]) {
+        try {
+          const res = await fetch("http://localhost:8000/api/analyze-sentiment", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: answers[q] }),
+          });
+          if (res.ok) {
+            updatedSentiment[q] = await res.json();
+          }
+        } catch (e) {
+          updatedSentiment[q] = null;
+        }
+      }
+    }
+    setSentimentPerQuestion(updatedSentiment);
+
     // For each question, for each audio blob, call /api/analyze-audio and collect results
     const results: any[] = [];
     for (let q = 0; q < questions.length; q++) {
@@ -257,7 +299,6 @@ export function Questions({ questions }: QuestionsProps) {
           featuresList.push(features);
         }
       }
-      // Average features for this question
       if (featuresList.length > 0) {
         const avg = (key: string) =>
           featuresList.reduce((sum, f) => sum + (f[key] || 0), 0) / featuresList.length;
@@ -269,9 +310,10 @@ export function Questions({ questions }: QuestionsProps) {
           avg_volume: avg("avg_volume"),
           total_pauses_sec: avg("total_pauses_sec"),
           num_pauses: avg("num_pauses"),
+          sentiment: updatedSentiment[q] || null,
         });
       } else {
-        results.push({ question: questions[q], noAudio: true });
+        results.push({ question: questions[q], noAudio: true, sentiment: updatedSentiment[q] || null });
       }
     }
     setAnalysisResults(results);
@@ -442,6 +484,12 @@ export function Questions({ questions }: QuestionsProps) {
                     <li>Volume: {res.avg_volume?.toFixed(4)}</li>
                     <li>Pauses: {res.num_pauses?.toFixed(1)}</li>
                     <li>Total Pause Time: {res.total_pauses_sec?.toFixed(2)} sec</li>
+                    {res.sentiment && (
+                      <>
+                        <li>Sentiment Polarity: {res.sentiment.polarity?.toFixed(2)}</li>
+                        <li>Subjectivity: {res.sentiment.subjectivity?.toFixed(2)}</li>
+                      </>
+                    )}
                   </ul>
                 )}
               </div>
