@@ -1,192 +1,126 @@
 "use client";
 
-import { useState, FormEvent, Dispatch, SetStateAction, useRef } from 'react';
+import { useRef, useState } from "react";
+import { motion } from "framer-motion";
 
 interface ResumeUploadProps {
-  setQuestions: Dispatch<SetStateAction<string[]>>;
-  setLoading: Dispatch<SetStateAction<boolean>>;
-  setError: Dispatch<SetStateAction<string | null>>;
+  setQuestions: (questions: string[]) => void;
+  setLoading: (loading: boolean) => void;
+  setError: (error: string | null) => void;
 }
 
 export function ResumeUpload({ setQuestions, setLoading, setError }: ResumeUploadProps) {
   const [file, setFile] = useState<File | null>(null);
-  const [jobRole, setJobRole] = useState('');
-  const [numQuestions, setNumQuestions] = useState(5);
+  const [jobRole, setJobRole] = useState("");
   const [fileError, setFileError] = useState<string | null>(null);
   const [jobRoleError, setJobRoleError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const validateForm = (): boolean => {
-    let isValid = true;
-    
-    // Validate file
-    if (!file) {
-      setFileError('Please select a resume file (PDF format)');
-      isValid = false;
-    } else if (!file.name.toLowerCase().endsWith('.pdf')) {
-      setFileError('Only PDF files are accepted');
-      isValid = false;
-    } else if (file.size > 10 * 1024 * 1024) { // 10MB limit
-      setFileError('File size should be less than 10MB');
-      isValid = false;
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0];
+    if (selectedFile && selectedFile.type !== "application/pdf") {
+      setFileError("Please upload a PDF file.");
+      setFile(null);
     } else {
       setFileError(null);
+      setFile(selectedFile || null);
     }
-    
-    // Validate job role
-    if (!jobRole.trim()) {
-      setJobRoleError('Please enter a job role');
-      isValid = false;
-    } else if (jobRole.trim().length < 3) {
-      setJobRoleError('Job role should be at least 3 characters long');
-      isValid = false;
-    } else {
-      setJobRoleError(null);
-    }
-    
-    return isValid;
   };
 
-  const handleSubmit = async (e: FormEvent) => {
+  const handleJobRoleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setJobRole(e.target.value);
+    setJobRoleError(e.target.value.trim() === "" ? "Please enter a job role." : null);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!validateForm()) {
+    if (!file) {
+      setFileError("Please upload your resume.");
       return;
     }
-    
+    if (!jobRole.trim()) {
+      setJobRoleError("Please enter a job role.");
+      return;
+    }
     setLoading(true);
     setError(null);
-    
-    try {
-      const formData = new FormData();
-      formData.append('resume', file!);
-      formData.append('job_role', jobRole);
-      formData.append('num_questions', numQuestions.toString());
-      
-      const response = await fetch('http://localhost:8000/api/parse-resume', {
-        method: 'POST',
-        body: formData,
-      });
-      
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.detail || 'Failed to process resume');
-      }
-      
-      setQuestions(data.questions);
-      
-      // Reset form after successful submission
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
-    } catch (error) {
-      console.error('Error:', error);
-      setError(error instanceof Error ? error.message : 'An unknown error occurred');
-      setQuestions([]);
-    } finally {
+
+    // Simulate API call
+    setTimeout(() => {
+      setQuestions([
+        `Why are you interested in the ${jobRole} role?`,
+        `Describe a challenging project from your resume.`,
+        `How do you stay updated with the latest trends in ${jobRole}?`,
+        `What skills from your resume make you a good fit for this position?`,
+        `Tell us about a time you solved a problem relevant to ${jobRole}.`
+      ]);
       setLoading(false);
-    }
+    }, 1500);
   };
-  
+
   return (
-    <div className="bg-white p-6 rounded-lg shadow-md">
-      <h2 className="text-xl font-semibold mb-4">Upload Your Resume</h2>
-      <form onSubmit={handleSubmit}>
-        <div className="mb-4">
-          <label className="block text-gray-700 mb-2" htmlFor="resume">
-            Resume (PDF)
-          </label>
+    <motion.form
+      onSubmit={handleSubmit}
+      initial={{ opacity: 0, y: 30 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.6 }}
+      className="bg-white rounded-xl shadow-lg p-8 mb-8"
+    >
+      <h2 className="text-2xl font-bold mb-6 text-[#1a237e] text-center">
+        Upload Resume &amp; Get Interview Questions
+      </h2>
+      <div className="mb-6">
+        <label className="block text-[#1a237e] font-medium mb-2" htmlFor="resume">
+          Resume (PDF)
+        </label>
+        <div
+          className={`flex items-center border-2 border-dashed rounded-lg p-4 cursor-pointer transition-colors ${
+            fileError ? "border-red-400 bg-red-50" : "border-[#3b82f6] bg-[#f3f6fb] hover:bg-[#e9f1ff]"
+          }`}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <svg className="w-6 h-6 text-[#3b82f6] mr-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          <span className="text-[#1a237e]">
+            {file ? file.name : "Click to upload your resume"}
+          </span>
           <input
             ref={fileInputRef}
-            type="file"
             id="resume"
-            accept=".pdf"
-            onChange={(e) => {
-              setFile(e.target.files?.[0] || null);
-              setFileError(null);
-            }}
-            className={`w-full px-3 py-2 border ${fileError ? 'border-red-500' : 'border-gray-300'} rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500`}
-            aria-describedby={fileError ? "resume-error" : undefined}
+            type="file"
+            accept="application/pdf"
+            className="hidden"
+            onChange={handleFileChange}
           />
-          {fileError && (
-            <p id="resume-error" className="mt-1 text-sm text-red-600">
-              {fileError}
-            </p>
-          )}
         </div>
-        
-        <div className="mb-4">
-          <label className="block text-gray-700 mb-2" htmlFor="jobRole">
-            Job Role
-          </label>
-          <input
-            type="text"
-            id="jobRole"
-            value={jobRole}
-            onChange={(e) => {
-              setJobRole(e.target.value);
-              setJobRoleError(null);
-            }}
-            className={`w-full px-3 py-2 border ${jobRoleError ? 'border-red-500' : 'border-gray-300'} rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500`}
-            placeholder="e.g., Software Engineer, Data Scientist"
-            aria-describedby={jobRoleError ? "job-role-error" : undefined}
-          />
-          {jobRoleError && (
-            <p id="job-role-error" className="mt-1 text-sm text-red-600">
-              {jobRoleError}
-            </p>
-          )}
-        </div>
-        
-        <div className="mb-4">
-          <label className="block text-gray-700 mb-2" htmlFor="numQuestions">
-            Number of Questions
-          </label>
-          <div className="flex items-center">
-            <button 
-              type="button" 
-              onClick={() => setNumQuestions(prev => Math.max(3, prev - 1))}
-              className="px-3 py-2 bg-gray-200 rounded-l-md hover:bg-gray-300"
-            >
-              -
-            </button>
-            <input
-              type="number"
-              id="numQuestions"
-              value={numQuestions}
-              onChange={(e) => {
-                const val = parseInt(e.target.value);
-                if (!isNaN(val) && val >= 3 && val <= 15) {
-                  setNumQuestions(val);
-                }
-              }}
-              min={3}
-              max={15}
-              className="w-16 text-center px-3 py-2 border-t border-b border-gray-300"
-              aria-label="Number of questions"
-            />
-            <button 
-              type="button" 
-              onClick={() => setNumQuestions(prev => Math.min(15, prev + 1))}
-              className="px-3 py-2 bg-gray-200 rounded-r-md hover:bg-gray-300"
-            >
-              +
-            </button>
-            <span className="ml-3 text-gray-600">
-              (3-15 questions)
-            </span>
-          </div>
-        </div>
-        
-        <button
-          type="submit"
-          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md transition duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-          disabled={fileError !== null || jobRoleError !== null}
-        >
-          Generate Interview Questions
-        </button>
-      </form>
-    </div>
+        {fileError && <p className="text-red-600 mt-2 text-sm">{fileError}</p>}
+      </div>
+      <div className="mb-6">
+        <label className="block text-[#1a237e] font-medium mb-2" htmlFor="jobRole">
+          Target Job Role
+        </label>
+        <input
+          id="jobRole"
+          type="text"
+          value={jobRole}
+          onChange={handleJobRoleChange}
+          placeholder="e.g. Frontend Developer"
+          className={`w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-[#3b82f6] transition ${
+            jobRoleError ? "border-red-400" : "border-[#3b82f6]"
+          }`}
+        />
+        {jobRoleError && <p className="text-red-600 mt-2 text-sm">{jobRoleError}</p>}
+      </div>
+      <motion.button
+        whileHover={{ scale: 1.04 }}
+        whileTap={{ scale: 0.97 }}
+        type="submit"
+        className="w-full bg-gradient-to-r from-[#3b82f6] to-[#1a237e] hover:from-[#1a237e] hover:to-[#3b82f6] text-white font-bold py-3 px-4 rounded-full transition duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 shadow-lg text-lg"
+        disabled={!!fileError || !!jobRoleError}
+      >
+        Generate Interview Questions
+      </motion.button>
+    </motion.form>
   );
 }

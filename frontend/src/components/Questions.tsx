@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { motion } from "framer-motion";
 
 interface QuestionsProps {
   questions: string[];
@@ -10,7 +11,7 @@ export function Questions({ questions }: QuestionsProps) {
   const [activeQuestion, setActiveQuestion] = useState(0);
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [showAllQuestions, setShowAllQuestions] = useState(false);
-  
+
   const handleNextQuestion = () => {
     if (activeQuestion < questions.length - 1) {
       setActiveQuestion(activeQuestion + 1);
@@ -34,123 +35,136 @@ export function Questions({ questions }: QuestionsProps) {
 
   const handleSubmitInterview = () => {
     alert('Your interview responses have been submitted!');
-    console.log('Answers:', answers);
     // Here you would send the answers to the backend for analysis
   };
 
-  // If we're in sequential mode, show only the current question
+  // Sequential (Practice) Mode
   if (!showAllQuestions) {
     return (
-      <div className="mt-8 bg-white p-6 rounded-lg shadow-md">
-        <h2 className="text-xl font-semibold mb-4">Interview Questions</h2>
-        
-        <div className="mb-4 p-1 bg-gray-100 rounded">
-          <div className="flex justify-between text-sm text-gray-500 px-3 py-1">
-            <span>Question {activeQuestion + 1} of {questions.length}</span>
-            <button 
-              className="text-blue-600 hover:underline"
-              onClick={() => setShowAllQuestions(true)}
-            >
-              View All
-            </button>
-          </div>
+      <motion.div
+        initial={{ opacity: 0, y: 30 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="mt-8 bg-white p-8 rounded-xl shadow-lg"
+      >
+        <h2 className="text-2xl font-bold mb-6 text-[#1a237e]">Interview Questions</h2>
+        <div className="mb-4 p-2 bg-[#f3f6fb] rounded-lg flex justify-between items-center text-sm text-[#3b82f6]">
+          <span>Question {activeQuestion + 1} of {questions.length}</span>
+          <button
+            className="text-[#1a237e] hover:underline font-medium"
+            onClick={() => setShowAllQuestions(true)}
+          >
+            View All
+          </button>
         </div>
-        
-        <div className="p-4 border rounded-lg mb-4">
-          <h3 className="font-medium text-lg mb-1">
-            <span className="font-semibold text-blue-600 mr-2">{activeQuestion + 1}.</span>
+        <motion.div
+          key={activeQuestion}
+          initial={{ opacity: 0, x: 40 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.4 }}
+          className="p-5 border border-[#e9f1ff] rounded-lg mb-4 bg-[#f3f6fb]"
+        >
+          <h3 className="font-semibold text-lg mb-2 text-[#1a237e] flex items-center">
+            <span className="mr-2 bg-[#3b82f6] text-white rounded-full w-8 h-8 flex items-center justify-center">{activeQuestion + 1}</span>
             {questions[activeQuestion]}
           </h3>
-          
           <div className="mt-4">
-            <label className="block text-gray-700 mb-2" htmlFor="answer">
+            <label className="block text-[#374151] mb-2 font-medium" htmlFor="answer">
               Your Answer:
             </label>
             <textarea
               id="answer"
               rows={5}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border border-[#3b82f6] rounded-md focus:outline-none focus:ring-2 focus:ring-[#3b82f6] bg-white transition"
               placeholder="Type your answer here..."
               value={answers[activeQuestion] || ''}
               onChange={handleAnswerChange}
             />
           </div>
-        </div>
-        
-        <div className="flex justify-between mt-4">
+        </motion.div>
+        <div className="flex justify-between mt-6">
           <button
             onClick={handlePreviousQuestion}
             disabled={activeQuestion === 0}
-            className={`px-4 py-2 rounded-md ${
-              activeQuestion === 0 
-                ? 'bg-gray-300 cursor-not-allowed' 
-                : 'bg-gray-500 hover:bg-gray-600 text-white'
+            className={`px-5 py-2 rounded-full font-semibold transition ${
+              activeQuestion === 0
+                ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                : 'bg-[#e9f1ff] text-[#1a237e] hover:bg-[#3b82f6] hover:text-white'
             }`}
           >
             Previous
           </button>
-          
           {activeQuestion < questions.length - 1 ? (
             <button
               onClick={handleNextQuestion}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md"
+              className="px-5 py-2 bg-gradient-to-r from-[#3b82f6] to-[#1a237e] text-white rounded-full font-semibold shadow-md hover:from-[#1a237e] hover:to-[#3b82f6] transition"
             >
               Next Question
             </button>
           ) : (
             <button
               onClick={handleSubmitInterview}
-              className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md"
+              className="px-5 py-2 bg-green-600 hover:bg-green-700 text-white rounded-full font-semibold shadow-md transition"
             >
               Submit Interview
             </button>
           )}
         </div>
-      </div>
+      </motion.div>
     );
   }
-  
-  // If we're viewing all questions at once
+
+  // All Questions Mode
   return (
-    <div className="mt-8 bg-white p-6 rounded-lg shadow-md">
-      <h2 className="text-xl font-semibold mb-4">
+    <motion.div
+      initial={{ opacity: 0, y: 30 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5 }}
+      className="mt-8 bg-white p-8 rounded-xl shadow-lg"
+    >
+      <h2 className="text-2xl font-bold mb-6 text-[#1a237e] flex items-center">
         Generated Interview Questions
-        <button 
+        <button
           onClick={() => setShowAllQuestions(false)}
-          className="ml-4 text-sm px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded"
+          className="ml-4 text-sm px-4 py-1 bg-[#e9f1ff] hover:bg-[#3b82f6] hover:text-white text-[#1a237e] rounded-full font-semibold transition"
         >
           Practice Mode
         </button>
       </h2>
-      
-      <div className="space-y-4 mb-8">
+      <div className="space-y-5 mb-8">
         {questions.map((question, index) => (
-          <div 
-            key={index} 
-            className="p-4 border rounded-lg"
+          <motion.div
+            key={index}
+            initial={{ opacity: 0, x: 40 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.3, delay: index * 0.07 }}
+            className="p-5 border border-[#e9f1ff] rounded-lg bg-[#f3f6fb]"
           >
             <div className="flex items-start">
-              <span className="font-semibold text-blue-600 mr-2">{index + 1}.</span>
-              <p className="font-medium">{question}</p>
+              <span className="font-semibold text-white bg-[#3b82f6] rounded-full w-8 h-8 flex items-center justify-center mr-3">{index + 1}</span>
+              <p className="font-medium text-[#1a237e]">{question}</p>
             </div>
-            
             {answers[index] && (
-              <div className="mt-3 pt-3 border-t border-gray-200">
-                <p className="text-sm font-medium text-gray-700">Your Answer:</p>
-                <p className="text-gray-600 mt-1">{answers[index]}</p>
+              <div className="mt-3 pt-3 border-t border-[#e9f1ff]">
+                <p className="text-sm font-medium text-[#374151]">Your Answer:</p>
+                <p className="text-[#374151] mt-1">{answers[index]}</p>
               </div>
             )}
-          </div>
+          </motion.div>
         ))}
       </div>
-      
-      <div className="mt-6 p-4 border border-green-100 rounded-lg bg-green-50">
-        <h3 className="text-lg font-medium mb-2 text-green-800">Ready for More Practice?</h3>
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="mt-6 p-6 border border-green-100 rounded-xl bg-green-50"
+      >
+        <h3 className="text-lg font-bold mb-2 text-green-800">Ready for More Practice?</h3>
         <p className="text-green-700 mb-4">
           Switch to Practice Mode to answer one question at a time.
         </p>
         <button
-          className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-md transition duration-200 flex items-center"
+          className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-full transition duration-200 flex items-center"
           onClick={() => setShowAllQuestions(false)}
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
@@ -158,7 +172,7 @@ export function Questions({ questions }: QuestionsProps) {
           </svg>
           Practice Mode
         </button>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }
