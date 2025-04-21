@@ -46,3 +46,6 @@ logs/
 temp/
 tmp/
 .DS_Store
+
+# Audio uploads (runtime only)
+session_audio/
