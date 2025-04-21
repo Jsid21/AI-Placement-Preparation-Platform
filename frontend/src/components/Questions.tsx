@@ -11,8 +11,12 @@ export function Questions({ questions }: QuestionsProps) {
   const [activeQuestion, setActiveQuestion] = useState(0);
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [showAllQuestions, setShowAllQuestions] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
+  const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
+  const [audioBlobsPerQuestion, setAudioBlobsPerQuestion] = useState<{ [key: number]: Blob[] }>({});
+  const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
   const recognitionRef = useRef<any>(null);
+  const [isRecording, setIsRecording] = useState(false);
 
   // Setup Speech Recognition
   useEffect(() => {
@@ -22,7 +26,7 @@ export function Questions({ questions }: QuestionsProps) {
     if (!SpeechRecognition) return;
 
     recognitionRef.current = new SpeechRecognition();
-    recognitionRef.current.continuous = false;
+    recognitionRef.current.continuous = true; // <--- Make it continuous
     recognitionRef.current.interimResults = false;
     recognitionRef.current.lang = "en-US";
 
@@ -32,13 +36,23 @@ export function Questions({ questions }: QuestionsProps) {
         ...prev,
         [activeQuestion]: (prev[activeQuestion] || "") + transcript,
       }));
-      setIsRecording(false);
+    };
+
+    // Restart recognition if it stops unexpectedly (only if still recording)
+    recognitionRef.current.onend = () => {
+      if (isRecording) {
+        try {
+          recognitionRef.current.start();
+        } catch (e) {
+          // Ignore errors if already started
+        }
+      }
     };
 
     recognitionRef.current.onerror = () => {
-      setIsRecording(false);
+      // Optionally handle errors
     };
-  }, [activeQuestion]);
+  }, [activeQuestion, isRecording]);
 
   // Handle spacebar shortcut
   useEffect(() => {
@@ -52,7 +66,7 @@ export function Questions({ questions }: QuestionsProps) {
       }
       if (e.code === "Space") {
         e.preventDefault();
-        handleMicClick();
+        handleMicAndAudioClick();
       }
     };
     window.addEventListener("keydown", handleSpace);
@@ -60,15 +74,100 @@ export function Questions({ questions }: QuestionsProps) {
     // eslint-disable-next-line
   }, [isRecording, activeQuestion]);
 
-  const handleMicClick = () => {
-    if (!recognitionRef.current) return;
+  useEffect(() => {
+    // Call backend to clear session audio on mount (new session)
+    fetch("http://localhost:8000/api/start-session", { method: "POST" });
+    setAudioBlobsPerQuestion({});
+  }, []);
+
+  const handleMicAndAudioClick = async () => {
     if (isRecording) {
-      recognitionRef.current.stop();
+      // Stop both
+      if (recognitionRef.current) recognitionRef.current.stop();
+      if (mediaRecorder) mediaRecorder.stop();
       setIsRecording(false);
+      // Stop audio stream tracks to release mic
+      if (audioStream) {
+        audioStream.getTracks().forEach(track => track.stop());
+        setAudioStream(null);
+      }
+      setMediaRecorder(null);
     } else {
-      recognitionRef.current.start();
+      // Start both
+      if (recognitionRef.current) recognitionRef.current.start();
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      setAudioStream(stream);
+
+      // Use a local array for chunks
+      let localChunks: Blob[] = [];
+      const recorder = new MediaRecorder(stream);
+
+      recorder.ondataavailable = (e) => {
+        localChunks.push(e.data);
+      };
+
+      recorder.onstop = () => {
+        const audioBlob = new Blob(localChunks, { type: "audio/webm" });
+        setAudioBlobsPerQuestion((prev) => {
+          const updated = { ...prev };
+          // Only add if not already present (avoid duplicates)
+          if (!updated[activeQuestion]) updated[activeQuestion] = [];
+          updated[activeQuestion] = [...updated[activeQuestion], audioBlob];
+          return updated;
+        });
+        uploadAudio(audioBlob);
+        setMediaRecorder(null);
+      };
+
+      setMediaRecorder(recorder);
+      recorder.start();
       setIsRecording(true);
     }
+  };
+
+  const startRecording = async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const recorder = new MediaRecorder(stream);
+    setMediaRecorder(recorder);
+    setAudioChunks([]);
+    recorder.start();
+
+    recorder.ondataavailable = (e) => {
+      setAudioChunks((prev) => [...prev, e.data]);
+    };
+
+    recorder.onstop = () => {
+      const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
+      // Save blob for this question
+      setAudioBlobsPerQuestion((prev) => {
+        const updated = { ...prev };
+        if (!updated[activeQuestion]) updated[activeQuestion] = [];
+        updated[activeQuestion].push(audioBlob);
+        return updated;
+      });
+      // Upload to backend
+      uploadAudio(audioBlob);
+      setAudioChunks([]);
+    };
+
+    setIsRecording(true);
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorder) {
+      mediaRecorder.stop();
+      setIsRecording(false);
+    }
+  };
+
+  const uploadAudio = async (audioBlob: Blob) => {
+    const formData = new FormData();
+    formData.append("audio", audioBlob, `answer_${Date.now()}.webm`);
+    formData.append("question_id", activeQuestion.toString());
+    await fetch("http://localhost:8000/api/upload-audio", {
+      method: "POST",
+      body: formData,
+    });
   };
 
   const handleNextQuestion = () => {
@@ -143,7 +242,7 @@ export function Questions({ questions }: QuestionsProps) {
               <button
                 type="button"
                 aria-label={isRecording ? "Stop Recording" : "Start Recording"}
-                onClick={handleMicClick}
+                onClick={handleMicAndAudioClick}
                 className={`absolute top-2 right-2 p-2 rounded-full transition ${
                   isRecording
                     ? "bg-red-100 text-red-600 animate-pulse"
@@ -167,6 +266,26 @@ export function Questions({ questions }: QuestionsProps) {
             <div className="text-xs text-gray-500 mt-1">
               {isRecording ? "Listening... (press Space to stop)" : "Press mic or Space to answer by voice"}
             </div>
+          </div>
+          <div className="mt-4">
+            <button
+              type="button"
+              onClick={handleMicAndAudioClick}
+              className={`px-5 py-2 rounded-full font-semibold transition ${
+                isRecording
+                  ? "bg-red-600 text-white"
+                  : "bg-[#e9f1ff] text-[#1a237e] hover:bg-[#3b82f6] hover:text-white"
+              }`}
+            >
+              {isRecording ? "Stop Recording & Speech-to-Text" : "Record Answer (Audio + Text)"}
+            </button>
+            <ul className="mt-4">
+              {(audioBlobsPerQuestion[activeQuestion] || []).map((blob, idx) => (
+                <li key={idx}>
+                  <audio controls src={URL.createObjectURL(blob)} />
+                </li>
+              ))}
+            </ul>
           </div>
         </motion.div>
         <div className="flex justify-between mt-6">
@@ -199,7 +318,7 @@ export function Questions({ questions }: QuestionsProps) {
         </div>
         <div className="mt-6 flex items-center">
           <button
-            onClick={handleMicClick}
+            onClick={handleMicAndAudioClick}
             className={`px-5 py-2 rounded-full font-semibold transition ${
               isRecording
                 ? 'bg-red-600 text-white'

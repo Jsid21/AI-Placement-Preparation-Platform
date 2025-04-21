@@ -1,3 +1,4 @@
+import os
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, Depends
 from fastapi.responses import JSONResponse
 from app.services.resume_service import extract_resume_text, remove_personal_info
@@ -6,6 +7,7 @@ from typing import List, Optional
 import logging
 import time
 from pydantic import BaseModel
+from uuid import uuid4
 
 # Configure logging
 logging.basicConfig(
@@ -15,6 +17,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+AUDIO_DIR = "session_audio"
+
+def clear_audio_dir():
+    if os.path.exists(AUDIO_DIR):
+        for f in os.listdir(AUDIO_DIR):
+            os.remove(os.path.join(AUDIO_DIR, f))
+    else:
+        os.makedirs(AUDIO_DIR)
 
 class QuestionResponse(BaseModel):
     questions: List[str]
@@ -70,3 +81,20 @@ async def parse_resume_and_generate_questions(
     except Exception as e:
         logger.error(f"Error in resume processing: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/start-session")
+async def start_session():
+    clear_audio_dir()
+    session_id = str(uuid4())
+    return {"session_id": session_id}
+
+@router.post("/upload-audio")
+async def upload_audio(
+    audio: UploadFile = File(...),
+    question_id: str = Form(...)
+):
+    # Save audio file locally
+    file_location = os.path.join(AUDIO_DIR, f"q{question_id}_{audio.filename}")
+    with open(file_location, "wb") as f:
+        f.write(await audio.read())
+    return {"status": "success", "filename": file_location}
