@@ -52,7 +52,7 @@ export default function InterviewPage() {
   const [error, setError] = useState<string | null>(null);
 
   const webcamRef = useRef<Webcam>(null);
-  const [bodyLangActive, setBodyLangActive] = useState(true);
+  const [bodyLangActive, setBodyLangActive] = useState(false);
   const [bodyLangFeedback, setBodyLangFeedback] = useState<string>("Initializing...");
   const [bodyLangData, setBodyLangData] = useState<any>(null);
   const [sending, setSending] = useState(false);
@@ -63,6 +63,14 @@ export default function InterviewPage() {
   const handleInterviewSubmit = () => {
     setBodyLangActive(false);
   };
+
+  useEffect(() => {
+    if (questions.length > 0 && !loading) {
+      setBodyLangActive(true);
+    } else {
+      setBodyLangActive(false);
+    }
+  }, [questions, loading]);
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -130,100 +138,78 @@ export default function InterviewPage() {
         )}
       </div>
       {/* Webcam in top-right */}
-      <div
-        style={{
-          position: "fixed",
-          top: draggable.position.y,
-          left: draggable.position.x,
-          zIndex: 2000,
-          width: 320,
-          background: "#fff",
-          borderRadius: 20,
-          boxShadow: "0 4px 24px #0002",
-          padding: 18,
-          fontFamily: "'Inter', 'Segoe UI', Arial, sans-serif",
-          border: "1.5px solid #e0e7ff",
-          transition: "all 0.3s cubic-bezier(.4,2,.6,1)",
-          cursor: "move"
-        }}
-        onMouseDown={draggable.onMouseDown}
-      >
-        {bodyLangActive && (
-          <div>
-            <Webcam
-              audio={false}
-              ref={webcamRef}
-              screenshotFormat="image/jpeg"
-              width={280}
-              style={{ borderRadius: 14, marginBottom: 12 }}
-              videoConstraints={{ facingMode: "user" }}
-            />
-            <div style={{ fontSize: 16, color: "#1a237e", marginTop: 8, fontWeight: 500, lineHeight: 1.7 }}>
-              {bodyLangData ? (
-                <div>
-                  <div>
-                    <span style={{ fontWeight: 700 }}>Eye:</span> {bodyLangData.eye_status}
+      {bodyLangActive && (
+        <div
+          style={{
+            position: "fixed",
+            top: draggable.position.y,
+            left: draggable.position.x,
+            zIndex: 2000,
+            width: 320,
+            background: "#fff",
+            borderRadius: 20,
+            boxShadow: "0 4px 24px #0002",
+            padding: 18,
+            fontFamily: "'Inter', 'Segoe UI', Arial, sans-serif",
+            border: "1.5px solid #e0e7ff",
+            transition: "all 0.3s cubic-bezier(.4,2,.6,1)",
+            cursor: "move"
+          }}
+          onMouseDown={draggable.onMouseDown}
+        >
+          <Webcam
+            audio={false}
+            ref={webcamRef}
+            screenshotFormat="image/jpeg"
+            width={280}
+            style={{ borderRadius: 14, marginBottom: 12 }}
+            videoConstraints={{ facingMode: "user" }}
+          />
+          <div style={{ fontSize: 16, color: "#1a237e", marginTop: 8, fontWeight: 500, lineHeight: 1.7 }}>
+            {bodyLangData ? (
+              <div>
+                <div><b>Eye:</b> {bodyLangData.eye_status}</div>
+                <div><b>Head:</b> {bodyLangData.head_status}</div>
+                <div><b>Emotion:</b> {bodyLangData.emotion}</div>
+                <div><b>Pose:</b> {bodyLangData.pose_status}</div>
+                <div><b>Time in Focus:</b> {bodyLangData.state_timers?.["Eyes Focused"]}</div>
+                <div><b>Time Looking Left:</b> {bodyLangData.state_timers?.["Looking Left"]}</div>
+                <div><b>Time Looking Right:</b> {bodyLangData.state_timers?.["Looking Right"]}</div>
+                <div><b>Head Centered:</b> {bodyLangData.state_timers?.["Head Centered"]}</div>
+                <div><b>Head Not Centered:</b> {bodyLangData.state_timers?.["Head Not Centered"]}</div>
+                <div><b>Session Time:</b> {bodyLangData.total_time}</div>
+                {bodyLangData.detected_objects && bodyLangData.detected_objects.length > 0 && (
+                  <div style={{ marginTop: 4 }}>
+                    <b>Objects Detected:</b>
+                    <ul>
+                      {bodyLangData.detected_objects.map((obj: any, idx: number) => (
+                        <li key={idx}>{obj.label} ({Math.round(obj.confidence * 100)}%)</li>
+                      ))}
+                    </ul>
                   </div>
-                  <div>
-                    <span style={{ fontWeight: 700 }}>Head:</span> {bodyLangData.head_status}
-                  </div>
-                  <div>
-                    <span style={{ fontWeight: 700 }}>Emotion:</span> {bodyLangData.emotion}
-                  </div>
-                  <div>
-                    <span style={{ fontWeight: 700 }}>Pose:</span> {bodyLangData.pose_status}
-                  </div>
-                  <div>
-                    <span style={{ fontWeight: 700 }}>Time in Focus:</span> {bodyLangData.state_timers?.["Eyes Focused"]}
-                  </div>
-                  <div>
-                    <span style={{ fontWeight: 700 }}>Time Looking Left:</span> {bodyLangData.state_timers?.["Looking Left"]}
-                  </div>
-                  <div>
-                    <span style={{ fontWeight: 700 }}>Time Looking Right:</span> {bodyLangData.state_timers?.["Looking Right"]}
-                  </div>
-                  <div>
-                    <span style={{ fontWeight: 700 }}>Head Centered:</span> {bodyLangData.state_timers?.["Head Centered"]}
-                  </div>
-                  <div>
-                    <span style={{ fontWeight: 700 }}>Head Not Centered:</span> {bodyLangData.state_timers?.["Head Not Centered"]}
-                  </div>
-                  <div>
-                    <span style={{ fontWeight: 700 }}>Session Time:</span> {bodyLangData.total_time}
-                  </div>
-                  {bodyLangData.detected_objects && bodyLangData.detected_objects.length > 0 && (
-                    <div style={{ marginTop: 4 }}>
-                      <span style={{ fontWeight: 700 }}>Objects Detected:</span>
-                      <ul style={{ marginLeft: 12, fontSize: 15 }}>
-                        {bodyLangData.detected_objects.map((obj: any, idx: number) => (
-                          <li key={idx}>{obj.label} ({Math.round(obj.confidence * 100)}%)</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {/* Actionable suggestions */}
-                  <div style={{
-                    marginTop: 12,
-                    color: "#e11d48",
-                    fontWeight: 600,
-                    fontSize: 15,
-                    background: "#fef2f2",
-                    borderRadius: 8,
-                    padding: "8px 12px"
-                  }}>
-                    {bodyLangData.eye_status !== "Eyes Focused" && "Try to maintain eye contact. "}
-                    {bodyLangData.head_status !== "Head Centered" && "Keep your head centered. "}
-                    {bodyLangData.emotion === "Neutral" && "Show more positive emotion. "}
-                    {bodyLangData.pose_status !== "Pose detected" && "Sit upright and stay visible. "}
-                  </div>
+                )}
+                {/* Actionable suggestions */}
+                <div style={{
+                  marginTop: 12,
+                  color: "#e11d48",
+                  fontWeight: 600,
+                  fontSize: 15,
+                  background: "#fef2f2",
+                  borderRadius: 8,
+                  padding: "8px 12px"
+                }}>
+                  {bodyLangData.eye_status !== "Eyes Focused" && "Try to maintain eye contact. "}
+                  {bodyLangData.head_status !== "Head Centered" && "Keep your head centered. "}
+                  {bodyLangData.emotion === "Neutral" && "Show more positive emotion. "}
+                  {bodyLangData.pose_status !== "Pose detected" && "Sit upright and stay visible. "}
                 </div>
-              ) : (
-                <div>Analyzing...</div>
-              )}
-            </div>
+              </div>
+            ) : (
+              <div>Analyzing...</div>
+            )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </main>
   );
 }
