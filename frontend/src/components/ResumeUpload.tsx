@@ -14,6 +14,9 @@ export function ResumeUpload({ setQuestions, setLoading, setError }: ResumeUploa
   const [jobRole, setJobRole] = useState("");
   const [fileError, setFileError] = useState<string | null>(null);
   const [jobRoleError, setJobRoleError] = useState<string | null>(null);
+  const [numQuestions, setNumQuestions] = useState(5);
+  const minQuestions = 3;
+  const maxQuestions = 15;
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -45,17 +48,29 @@ export function ResumeUpload({ setQuestions, setLoading, setError }: ResumeUploa
     setLoading(true);
     setError(null);
 
-    // Simulate API call
-    setTimeout(() => {
-      setQuestions([
-        `Why are you interested in the ${jobRole} role?`,
-        `Describe a challenging project from your resume.`,
-        `How do you stay updated with the latest trends in ${jobRole}?`,
-        `What skills from your resume make you a good fit for this position?`,
-        `Tell us about a time you solved a problem relevant to ${jobRole}.`
-      ]);
+    // Prepare form data
+    const formData = new FormData();
+    formData.append("resume", file);
+    formData.append("job_role", jobRole);
+    formData.append("num_questions", numQuestions.toString());
+
+    try {
+      const response = await fetch("http://localhost:8000/api/parse-resume", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await response.json();
+      console.log("API response:", data); // <-- Add this line
+      if (response.ok && data.questions) {
+        setQuestions(data.questions);
+      } else {
+        setError(data.detail || "Failed to generate questions.");
+      }
+    } catch (err) {
+      setError("Failed to generate questions.");
+    } finally {
       setLoading(false);
-    }, 1500);
+    }
   };
 
   return (
@@ -64,8 +79,30 @@ export function ResumeUpload({ setQuestions, setLoading, setError }: ResumeUploa
       initial={{ opacity: 0, y: 30 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.6 }}
-      className="bg-white rounded-xl shadow-lg p-8 mb-8"
+      className="bg-white rounded-xl shadow-lg p-8 mb-8 relative"
     >
+      {/* Number of Questions Control - small, top left */}
+      <div className="absolute -top-4 left-4 flex items-center space-x-2 bg-[#f3f6fb] border border-[#3b82f6] rounded-full px-3 py-1 shadow text-[#1a237e] text-sm z-20">
+        <button
+          type="button"
+          aria-label="Decrease number of questions"
+          onClick={() => setNumQuestions(n => Math.max(minQuestions, n - 1))}
+          className="px-2 py-0.5 rounded-full hover:bg-[#e9f1ff] focus:outline-none"
+          disabled={numQuestions <= minQuestions}
+        >
+          <span className="text-lg font-bold">−</span>
+        </button>
+        <span className="font-semibold">{numQuestions}</span>
+        <button
+          type="button"
+          aria-label="Increase number of questions"
+          onClick={() => setNumQuestions(n => Math.min(maxQuestions, n + 1))}
+          className="px-2 py-0.5 rounded-full hover:bg-[#e9f1ff] focus:outline-none"
+          disabled={numQuestions >= maxQuestions}
+        >
+          <span className="text-lg font-bold">+</span>
+        </button>
+      </div>
       <h2 className="text-2xl font-bold mb-6 text-[#1a237e] text-center">
         Upload Resume &amp; Get Interview Questions
       </h2>

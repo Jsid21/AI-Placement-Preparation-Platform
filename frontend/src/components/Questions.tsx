@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 
 interface QuestionsProps {
@@ -11,6 +11,65 @@ export function Questions({ questions }: QuestionsProps) {
   const [activeQuestion, setActiveQuestion] = useState(0);
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [showAllQuestions, setShowAllQuestions] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const recognitionRef = useRef<any>(null);
+
+  // Setup Speech Recognition
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+
+    recognitionRef.current = new SpeechRecognition();
+    recognitionRef.current.continuous = false;
+    recognitionRef.current.interimResults = false;
+    recognitionRef.current.lang = "en-US";
+
+    recognitionRef.current.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      setAnswers((prev) => ({
+        ...prev,
+        [activeQuestion]: (prev[activeQuestion] || "") + transcript,
+      }));
+      setIsRecording(false);
+    };
+
+    recognitionRef.current.onerror = () => {
+      setIsRecording(false);
+    };
+  }, [activeQuestion]);
+
+  // Handle spacebar shortcut
+  useEffect(() => {
+    const handleSpace = (e: KeyboardEvent) => {
+      if (
+        document.activeElement &&
+        (document.activeElement.tagName === "TEXTAREA" ||
+          document.activeElement.tagName === "INPUT")
+      ) {
+        return; // Don't trigger if typing in input/textarea
+      }
+      if (e.code === "Space") {
+        e.preventDefault();
+        handleMicClick();
+      }
+    };
+    window.addEventListener("keydown", handleSpace);
+    return () => window.removeEventListener("keydown", handleSpace);
+    // eslint-disable-next-line
+  }, [isRecording, activeQuestion]);
+
+  const handleMicClick = () => {
+    if (!recognitionRef.current) return;
+    if (isRecording) {
+      recognitionRef.current.stop();
+      setIsRecording(false);
+    } else {
+      recognitionRef.current.start();
+      setIsRecording(true);
+    }
+  };
 
   const handleNextQuestion = () => {
     if (activeQuestion < questions.length - 1) {
@@ -72,14 +131,42 @@ export function Questions({ questions }: QuestionsProps) {
             <label className="block text-[#374151] mb-2 font-medium" htmlFor="answer">
               Your Answer:
             </label>
-            <textarea
-              id="answer"
-              rows={5}
-              className="w-full px-3 py-2 border border-[#3b82f6] rounded-md focus:outline-none focus:ring-2 focus:ring-[#3b82f6] bg-white transition"
-              placeholder="Type your answer here..."
-              value={answers[activeQuestion] || ''}
-              onChange={handleAnswerChange}
-            />
+            <div className="relative">
+              <textarea
+                id="answer"
+                rows={5}
+                className="w-full px-3 py-2 border border-[#3b82f6] rounded-md focus:outline-none focus:ring-2 focus:ring-[#3b82f6] bg-white transition pr-12"
+                placeholder="Type your answer here or use the mic..."
+                value={answers[activeQuestion] || ''}
+                onChange={handleAnswerChange}
+              />
+              <button
+                type="button"
+                aria-label={isRecording ? "Stop Recording" : "Start Recording"}
+                onClick={handleMicClick}
+                className={`absolute top-2 right-2 p-2 rounded-full transition ${
+                  isRecording
+                    ? "bg-red-100 text-red-600 animate-pulse"
+                    : "bg-[#e9f1ff] text-[#1a237e] hover:bg-[#3b82f6] hover:text-white"
+                }`}
+                tabIndex={0}
+              >
+                {isRecording ? (
+                  // Recording icon
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="red" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="8" />
+                  </svg>
+                ) : (
+                  // Mic icon
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 18v2m0 0h3m-3 0H9m6-6a3 3 0 01-6 0V7a3 3 0 016 0v5z" />
+                  </svg>
+                )}
+              </button>
+            </div>
+            <div className="text-xs text-gray-500 mt-1">
+              {isRecording ? "Listening... (press Space to stop)" : "Press mic or Space to answer by voice"}
+            </div>
           </div>
         </motion.div>
         <div className="flex justify-between mt-6">
@@ -109,6 +196,18 @@ export function Questions({ questions }: QuestionsProps) {
               Submit Interview
             </button>
           )}
+        </div>
+        <div className="mt-6 flex items-center">
+          <button
+            onClick={handleMicClick}
+            className={`px-5 py-2 rounded-full font-semibold transition ${
+              isRecording
+                ? 'bg-red-600 text-white'
+                : 'bg-[#e9f1ff] text-[#1a237e] hover:bg-[#3b82f6] hover:text-white'
+            }`}
+          >
+            {isRecording ? "Stop Recording" : "Start Recording"}
+          </button>
         </div>
       </motion.div>
     );
