@@ -1,10 +1,11 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, RadialBarChart, RadialBar, Legend, LineChart, Line } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, RadialBarChart, RadialBar, Legend, LineChart, Line, Cell } from "recharts";
 
 export default function FeedbackPage() {
   const [analysisResults, setAnalysisResults] = useState<any[]>([]);
+  const [personalityResults, setPersonalityResults] = useState<{ [key: number]: any }>({});
   const router = useRouter();
 
   useEffect(() => {
@@ -13,6 +14,25 @@ export default function FeedbackPage() {
     if (data) setAnalysisResults(JSON.parse(data));
     else router.replace("/interview"); // Redirect if no data
   }, [router]);
+
+  useEffect(() => {
+    if (!analysisResults.length) return;
+    // Fetch personality for each answer
+    analysisResults.forEach((res, idx) => {
+      if (res.question && !personalityResults[idx]) {
+        fetch("http://localhost:8000/api/analyze-personality", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: res.question }),
+        })
+          .then((r) => r.json())
+          .then((data) => {
+            setPersonalityResults((prev) => ({ ...prev, [idx]: data }));
+          });
+      }
+    });
+    // eslint-disable-next-line
+  }, [analysisResults]);
 
   if (!analysisResults.length) {
     return (
@@ -132,20 +152,70 @@ export default function FeedbackPage() {
               {res.noAudio ? (
                 <div className="text-red-500">No audio recorded for this question.</div>
               ) : (
-                <ul className="ml-4 text-sm">
-                  <li>Duration: {res.duration_sec?.toFixed(2)} sec</li>
-                  <li>Pitch: {res.avg_pitch?.toFixed(2)}</li>
-                  <li>Pace (BPM): {res.tempo_bpm?.toFixed(2)}</li>
-                  <li>Volume: {res.avg_volume?.toFixed(4)}</li>
-                  <li>Pauses: {res.num_pauses?.toFixed(1)}</li>
-                  <li>Total Pause Time: {res.total_pauses_sec?.toFixed(2)} sec</li>
-                  {res.sentiment && (
-                    <>
-                      <li>Sentiment Polarity: {res.sentiment.polarity?.toFixed(2)}</li>
-                      <li>Subjectivity: {res.sentiment.subjectivity?.toFixed(2)}</li>
-                    </>
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between">
+                  <ul className="ml-4 text-sm flex-1">
+                    <li>Duration: {res.duration_sec?.toFixed(2)} sec</li>
+                    <li>Pitch: {res.avg_pitch?.toFixed(2)}</li>
+                    <li>Pace (BPM): {res.tempo_bpm?.toFixed(2)}</li>
+                    <li>Volume: {res.avg_volume?.toFixed(4)}</li>
+                    <li>Pauses: {res.num_pauses?.toFixed(1)}</li>
+                    <li>Total Pause Time: {res.total_pauses_sec?.toFixed(2)} sec</li>
+                    {res.sentiment && (
+                      <>
+                        <li>Sentiment Polarity: {res.sentiment.polarity?.toFixed(2)}</li>
+                        <li>Subjectivity: {res.sentiment.subjectivity?.toFixed(2)}</li>
+                      </>
+                    )}
+                  </ul>
+                  {personalityResults[idx] && (
+                    <div style={{ width: 360, height: 180 }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={Object.entries(personalityResults[idx]).map(([trait, value]) => ({
+                            trait,
+                            value: Number(value),
+                          }))}
+                          layout="vertical"
+                          margin={{ top: 10, right: 20, left: 20, bottom: 10 }}
+                        >
+                          <XAxis type="number" domain={[0, 1]} hide />
+                          <YAxis
+                            dataKey="trait"
+                            type="category"
+                            tick={{ fontWeight: 600, fill: "#3b82f6" }}
+                            width={150}
+                          />
+                          <Tooltip
+                            cursor={{ fill: "#e0e7ff" }}
+                            formatter={(v: number) => v.toFixed(2)}
+                          />
+                          <Bar
+                            dataKey="value"
+                            fill="#f59e42"
+                            radius={[10, 10, 10, 10]}
+                            isAnimationActive={true}
+                            barSize={28}
+                          >
+                            {Object.entries(personalityResults[idx]).map(([_, __], i) => (
+                              <Cell
+                                key={`cell-${i}`}
+                                fill={
+                                  [
+                                    "#f59e42", // Extroversion
+                                    "#6366f1", // Neuroticism
+                                    "#34d399", // Agreeableness
+                                    "#fbbf24", // Conscientiousness
+                                    "#3b82f6", // Openness
+                                  ][i]
+                                }
+                              />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
                   )}
-                </ul>
+                </div>
               )}
             </div>
           ))}

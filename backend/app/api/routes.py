@@ -5,6 +5,7 @@ from app.services.resume_service import extract_resume_text, remove_personal_inf
 from app.services.question_service import generate_interview_questions
 from app.services.audio_analysis_service import extract_audio_features
 from app.services.sentiment_service import analyze_sentiment
+from app.services.personality_service import personality_detection
 from typing import List, Optional
 import logging
 import time
@@ -117,4 +118,11 @@ async def analyze_sentiment_api(request: Request):
     data = await request.json()
     text = data.get("text", "")
     result = analyze_sentiment(text)
+    return result
+
+@router.post("/analyze-personality")
+async def analyze_personality_api(request: Request):
+    data = await request.json()
+    text = data.get("text", "")
+    result = personality_detection(text)
     return result

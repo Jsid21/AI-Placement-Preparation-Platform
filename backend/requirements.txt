@@ -10,3 +10,5 @@ numpy
 soundfile
 pydub
 textblob
+transformers
+torch
