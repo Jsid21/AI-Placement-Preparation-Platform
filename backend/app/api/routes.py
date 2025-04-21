@@ -3,6 +3,7 @@ from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Background
 from fastapi.responses import JSONResponse
 from app.services.resume_service import extract_resume_text, remove_personal_info
 from app.services.question_service import generate_interview_questions
+from app.services.audio_analysis_service import extract_audio_features
 from typing import List, Optional
 import logging
 import time
@@ -98,3 +99,14 @@ async def upload_audio(
     with open(file_location, "wb") as f:
         f.write(await audio.read())
     return {"status": "success", "filename": file_location}
+
+@router.post("/analyze-audio")
+async def analyze_audio(question_id: str = Form(...)):
+    # Find the latest audio file for this question
+    files = [f for f in os.listdir(AUDIO_DIR) if f.startswith(f"q{question_id}_")]
+    if not files:
+        return {"error": "No audio found for this question"}
+    latest_file = sorted(files)[-1]
+    audio_path = os.path.join(AUDIO_DIR, latest_file)
+    features = extract_audio_features(audio_path)
+    return features
