@@ -47,3 +47,10 @@ body {
   outline: 2px solid #3b82f6;
   outline-offset: 2px;
 }
+
+.avoid-break,
+.avoid-break * {
+  break-inside: avoid !important;
+  page-break-inside: avoid !important;
+  -webkit-column-break-inside: avoid !important;
+}
