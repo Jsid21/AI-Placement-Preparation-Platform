@@ -23,6 +23,7 @@ export function Questions({ questions, onSubmit }: QuestionsProps) {
   const [submitted, setSubmitted] = useState(false);
   const [analysisResults, setAnalysisResults] = useState<any[]>([]);
   const [sentimentPerQuestion, setSentimentPerQuestion] = useState<{ [key: number]: any }>({});
+  const [answerFeedbacks, setAnswerFeedbacks] = useState<{ [key: number]: string }>({});
 
   // Setup Speech Recognition
   useEffect(() => {
@@ -231,6 +232,19 @@ export function Questions({ questions, onSubmit }: QuestionsProps) {
     }
   }
 
+  async function fetchAnswerFeedback(question: string, answer: string, jobDescription?: string, resumeText?: string) {
+    const res = await fetch("http://localhost:8000/api/analyze-answer-feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question, answer, job_description: jobDescription, resume_text: resumeText }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data.feedback;
+    }
+    return "Could not analyze answer.";
+  }
+
   const handleNextQuestion = () => {
     if (activeQuestion < questions.length - 1) {
       setActiveQuestion(activeQuestion + 1);
@@ -319,6 +333,17 @@ export function Questions({ questions, onSubmit }: QuestionsProps) {
     }
     setAnalysisResults(results);
     localStorage.setItem("analysisResults", JSON.stringify(results));
+
+    // After collecting answers:
+    const feedbacks: { [key: number]: string } = {};
+    for (let i = 0; i < questions.length; i++) {
+      if (answers[i]) {
+        feedbacks[i] = await fetchAnswerFeedback(questions[i], answers[i]);
+      }
+    }
+    setAnswerFeedbacks(feedbacks);
+    localStorage.setItem("answerFeedbacks", JSON.stringify(feedbacks));
+
     setSubmitted(true);
   };
 

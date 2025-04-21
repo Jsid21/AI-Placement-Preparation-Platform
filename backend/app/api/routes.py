@@ -1,4 +1,5 @@
 import os
+import requests
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, Depends, Request
 from fastapi.responses import JSONResponse
 from app.services.resume_service import extract_resume_text, remove_personal_info
@@ -34,6 +35,12 @@ class QuestionResponse(BaseModel):
     questions: List[str]
     job_role: str
     timestamp: float
+
+class AnswerFeedbackRequest(BaseModel):
+    answer: str
+    question: str
+    job_description: str = None
+    resume_text: str = None
 
 @router.post("/parse-resume", response_model=QuestionResponse)
 async def parse_resume_and_generate_questions(
@@ -126,3 +133,52 @@ async def analyze_personality_api(request: Request):
     text = data.get("text", "")
     result = personality_detection(text)
     return result
+
+GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+GROQ_MODEL = "llama3-70b-8192"
+
+@router.post("/analyze-answer-feedback")
+async def analyze_answer_feedback(request: Request):
+    data = await request.json()
+    answer = data.get("answer")
+    question = data.get("question")
+    job_description = data.get("job_description")
+    resume_text = data.get("resume_text")
+
+    system_prompt = (
+        "You are an expert technical interviewer. Analyze the candidate's answer to the interview question below. "
+        "Provide feedback on correctness, depth, relevance to the job, and communication clarity. "
+        "Give a job fit score (0-100%) and actionable improvement suggestions. Format as a professional, structured assessment."
+    )
+
+    user_prompt = (
+        f"Question: {question}\n"
+        f"Answer: {answer}\n"
+        f"{f'Job Description: {job_description}' if job_description else ''}\n"
+        f"{f'Resume: {resume_text}' if resume_text else ''}\n"
+    )
+
+    payload = {
+        "model": GROQ_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        "max_tokens": 512,
+        "temperature": 0.4,
+    }
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    try:
+        response = requests.post(GROQ_API_URL, headers=headers, json=payload)
+        if response.status_code != 200:
+            return {"feedback": f"Groq API error: {response.status_code} - {response.text}"}
+        result = response.json()
+        feedback = result["choices"][0]["message"]["content"]
+        return {"feedback": feedback}
+    except Exception as e:
+        return {"feedback": f"Error analyzing answer: {str(e)}"}
