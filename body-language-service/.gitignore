@@ -47,5 +47,6 @@ temp/
 tmp/
 .DS_Store
 
-# Audio uploads (runtime only)
-session_audio/
+# In body-language-service/.gitignore
+yolov8n.pt
+

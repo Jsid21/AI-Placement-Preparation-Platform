@@ -6,6 +6,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Radar, Radar
 export default function FeedbackPage() {
   const [analysisResults, setAnalysisResults] = useState<any[]>([]);
   const [personalityResults, setPersonalityResults] = useState<{ [key: number]: any }>({});
+  const [bodyLangFeedback, setBodyLangFeedback] = useState<any>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -14,6 +15,11 @@ export default function FeedbackPage() {
     if (data) setAnalysisResults(JSON.parse(data));
     else router.replace("/interview"); // Redirect if no data
   }, [router]);
+
+  useEffect(() => {
+    const data = localStorage.getItem("bodyLangFeedback");
+    if (data) setBodyLangFeedback(JSON.parse(data));
+  }, []);
 
   useEffect(() => {
     if (!analysisResults.length) return;
@@ -219,6 +225,13 @@ export default function FeedbackPage() {
               )}
             </div>
           ))}
+          {bodyLangFeedback && (
+            <div className="mt-6 p-4 bg-blue-50 rounded-lg shadow">
+              <h3 className="text-lg font-bold mb-2 text-blue-900">Body Language Analysis</h3>
+              <div>{bodyLangFeedback.feedback}</div>
+              {/* Add more details as needed */}
+            </div>
+          )}
         </div>
       </div>
     </main>

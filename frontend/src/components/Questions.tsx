@@ -5,9 +5,10 @@ import { motion } from "framer-motion";
 
 interface QuestionsProps {
   questions: string[];
+  onSubmit?: () => void; // Add this prop
 }
 
-export function Questions({ questions }: QuestionsProps) {
+export function Questions({ questions, onSubmit }: QuestionsProps) {
   const [activeQuestion, setActiveQuestion] = useState(0);
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [showAllQuestions, setShowAllQuestions] = useState(false);
@@ -321,6 +322,11 @@ export function Questions({ questions }: QuestionsProps) {
     setSubmitted(true);
   };
 
+  const handleSubmit = () => {
+    handleSubmitInterview(); // Existing submit logic
+    if (onSubmit) onSubmit(); // Call the callback
+  };
+
   // Sequential (Practice) Mode
   if (!showAllQuestions) {
     return (
@@ -447,7 +453,7 @@ export function Questions({ questions }: QuestionsProps) {
             </button>
           ) : (
             <button
-              onClick={handleSubmitInterview}
+              onClick={handleSubmit}
               className="px-5 py-2 bg-green-600 hover:bg-green-700 text-white rounded-full font-semibold shadow-md transition"
             >
               Submit Interview
