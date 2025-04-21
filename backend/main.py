@@ -2,7 +2,7 @@ from dotenv import load_dotenv
 load_dotenv()
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.routes import router
+from app.api.routes import router, clear_audio_dir
 
 app = FastAPI(title="AI Placement Preparation Platform")
 
@@ -17,6 +17,10 @@ app.add_middleware(
 
 # Include API routes
 app.include_router(router, prefix="/api")
+
+@app.on_event("startup")
+def ensure_audio_dir():
+    clear_audio_dir()  # This will create the directory if missing (and clear it)
 
 if __name__ == "__main__":
     import uvicorn

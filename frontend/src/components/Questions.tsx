@@ -14,9 +14,13 @@ export function Questions({ questions }: QuestionsProps) {
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
   const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
   const [audioBlobsPerQuestion, setAudioBlobsPerQuestion] = useState<{ [key: number]: Blob[] }>({});
+  const [audioFeaturesPerQuestion, setAudioFeaturesPerQuestion] = useState<{ [key: number]: any }>({});
   const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
   const recognitionRef = useRef<any>(null);
+  const lastTranscriptRef = useRef<string>("");
   const [isRecording, setIsRecording] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [analysisResults, setAnalysisResults] = useState<any[]>([]);
 
   // Setup Speech Recognition
   useEffect(() => {
@@ -31,11 +35,23 @@ export function Questions({ questions }: QuestionsProps) {
     recognitionRef.current.lang = "en-US";
 
     recognitionRef.current.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript;
-      setAnswers((prev) => ({
-        ...prev,
-        [activeQuestion]: (prev[activeQuestion] || "") + transcript,
-      }));
+      // Concatenate all results so far
+      let fullTranscript = "";
+      for (let i = 0; i < event.results.length; i++) {
+        fullTranscript += event.results[i][0].transcript;
+      }
+      // Only add new part
+      const prev = lastTranscriptRef.current;
+      const newPart = fullTranscript.startsWith(prev)
+        ? fullTranscript.slice(prev.length)
+        : fullTranscript; // fallback if mismatch
+      if (newPart.trim()) {
+        setAnswers((prevAnswers) => ({
+          ...prevAnswers,
+          [activeQuestion]: (prevAnswers[activeQuestion] || "") + newPart,
+        }));
+      }
+      lastTranscriptRef.current = fullTranscript;
     };
 
     // Restart recognition if it stops unexpectedly (only if still recording)
@@ -53,6 +69,10 @@ export function Questions({ questions }: QuestionsProps) {
       // Optionally handle errors
     };
   }, [activeQuestion, isRecording]);
+
+  useEffect(() => {
+    lastTranscriptRef.current = "";
+  }, [activeQuestion]);
 
   // Handle spacebar shortcut
   useEffect(() => {
@@ -93,6 +113,7 @@ export function Questions({ questions }: QuestionsProps) {
       }
       setMediaRecorder(null);
     } else {
+      lastTranscriptRef.current = "";
       // Start both
       if (recognitionRef.current) recognitionRef.current.start();
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -168,6 +189,24 @@ export function Questions({ questions }: QuestionsProps) {
       method: "POST",
       body: formData,
     });
+    // Fetch features after upload
+    fetchAudioFeatures(activeQuestion);
+  };
+
+  const fetchAudioFeatures = async (questionId: number) => {
+    const formData = new FormData();
+    formData.append("question_id", questionId.toString());
+    const res = await fetch("http://localhost:8000/api/analyze-audio", {
+      method: "POST",
+      body: formData,
+    });
+    if (res.ok) {
+      const features = await res.json();
+      setAudioFeaturesPerQuestion((prev) => ({
+        ...prev,
+        [questionId]: features,
+      }));
+    }
   };
 
   const handleNextQuestion = () => {
@@ -191,9 +230,53 @@ export function Questions({ questions }: QuestionsProps) {
     });
   };
 
-  const handleSubmitInterview = () => {
-    alert('Your interview responses have been submitted!');
-    // Here you would send the answers to the backend for analysis
+  const handleSubmitInterview = async () => {
+    // For each question, for each audio blob, call /api/analyze-audio and collect results
+    const results: any[] = [];
+    for (let q = 0; q < questions.length; q++) {
+      const blobs = audioBlobsPerQuestion[q] || [];
+      const featuresList: any[] = [];
+      for (let i = 0; i < blobs.length; i++) {
+        // Upload each audio blob (if not already uploaded)
+        const formData = new FormData();
+        formData.append("audio", blobs[i], `answer_${Date.now()}_${i}.webm`);
+        formData.append("question_id", q.toString());
+        await fetch("http://localhost:8000/api/upload-audio", {
+          method: "POST",
+          body: formData,
+        });
+        // Analyze
+        const analyzeForm = new FormData();
+        analyzeForm.append("question_id", q.toString());
+        const res = await fetch("http://localhost:8000/api/analyze-audio", {
+          method: "POST",
+          body: analyzeForm,
+        });
+        if (res.ok) {
+          const features = await res.json();
+          featuresList.push(features);
+        }
+      }
+      // Average features for this question
+      if (featuresList.length > 0) {
+        const avg = (key: string) =>
+          featuresList.reduce((sum, f) => sum + (f[key] || 0), 0) / featuresList.length;
+        results.push({
+          question: questions[q],
+          duration_sec: avg("duration_sec"),
+          avg_pitch: avg("avg_pitch"),
+          tempo_bpm: avg("tempo_bpm"),
+          avg_volume: avg("avg_volume"),
+          total_pauses_sec: avg("total_pauses_sec"),
+          num_pauses: avg("num_pauses"),
+        });
+      } else {
+        results.push({ question: questions[q], noAudio: true });
+      }
+    }
+    setAnalysisResults(results);
+    localStorage.setItem("analysisResults", JSON.stringify(results));
+    setSubmitted(true);
   };
 
   // Sequential (Practice) Mode
@@ -286,6 +369,19 @@ export function Questions({ questions }: QuestionsProps) {
                 </li>
               ))}
             </ul>
+            {audioFeaturesPerQuestion[activeQuestion] && (
+              <div className="mt-2 p-2 bg-gray-50 rounded">
+                <strong>Audio Analysis:</strong>
+                <ul>
+                  <li>Duration: {audioFeaturesPerQuestion[activeQuestion].duration_sec?.toFixed(2)} sec</li>
+                  <li>Pitch: {audioFeaturesPerQuestion[activeQuestion].avg_pitch?.toFixed(2)}</li>
+                  <li>Pace (BPM): {audioFeaturesPerQuestion[activeQuestion].tempo_bpm?.toFixed(2)}</li>
+                  <li>Volume: {audioFeaturesPerQuestion[activeQuestion].avg_volume?.toFixed(4)}</li>
+                  <li>Pauses: {audioFeaturesPerQuestion[activeQuestion].num_pauses}</li>
+                  <li>Total Pause Time: {audioFeaturesPerQuestion[activeQuestion].total_pauses_sec?.toFixed(2)} sec</li>
+                </ul>
+              </div>
+            )}
           </div>
         </motion.div>
         <div className="flex justify-between mt-6">
@@ -328,6 +424,42 @@ export function Questions({ questions }: QuestionsProps) {
             {isRecording ? "Stop Recording" : "Start Recording"}
           </button>
         </div>
+        {submitted && (
+          <div className="mt-8 bg-white p-6 rounded-xl shadow-lg">
+            <h2 className="text-xl font-bold mb-4 text-[#1a237e]">Audio Analysis Summary</h2>
+            {analysisResults.map((res, idx) => (
+              <div key={idx} className="mb-6">
+                <h3 className="font-semibold text-[#3b82f6] mb-2">
+                  Q{idx + 1}: {res.question}
+                </h3>
+                {res.noAudio ? (
+                  <div className="text-red-500">No audio recorded for this question.</div>
+                ) : (
+                  <ul className="ml-4 text-sm">
+                    <li>Duration: {res.duration_sec?.toFixed(2)} sec</li>
+                    <li>Pitch: {res.avg_pitch?.toFixed(2)}</li>
+                    <li>Pace (BPM): {res.tempo_bpm?.toFixed(2)}</li>
+                    <li>Volume: {res.avg_volume?.toFixed(4)}</li>
+                    <li>Pauses: {res.num_pauses?.toFixed(1)}</li>
+                    <li>Total Pause Time: {res.total_pauses_sec?.toFixed(2)} sec</li>
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        {submitted && (
+          <div className="flex justify-center mt-6">
+            <a
+              href="/feedback"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-6 py-2 bg-[#3b82f6] text-white rounded-full font-semibold"
+            >
+              View Feedback & Analysis
+            </a>
+          </div>
+        )}
       </motion.div>
     );
   }
