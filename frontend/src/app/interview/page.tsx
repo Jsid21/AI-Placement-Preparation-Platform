@@ -56,6 +56,7 @@ export default function InterviewPage() {
   const [bodyLangFeedback, setBodyLangFeedback] = useState<string>("Initializing...");
   const [bodyLangData, setBodyLangData] = useState<any>(null);
   const [sending, setSending] = useState(false);
+  const [showBodyLangDetails, setShowBodyLangDetails] = useState(false);
 
   const draggable = useDraggable({ x: 40, y: 40 });
 
@@ -172,37 +173,43 @@ export default function InterviewPage() {
                 <div><b>Head:</b> {bodyLangData.head_status}</div>
                 <div><b>Emotion:</b> {bodyLangData.emotion}</div>
                 <div><b>Pose:</b> {bodyLangData.pose_status}</div>
-                <div><b>Time in Focus:</b> {bodyLangData.state_timers?.["Eyes Focused"]}</div>
-                <div><b>Time Looking Left:</b> {bodyLangData.state_timers?.["Looking Left"]}</div>
-                <div><b>Time Looking Right:</b> {bodyLangData.state_timers?.["Looking Right"]}</div>
-                <div><b>Head Centered:</b> {bodyLangData.state_timers?.["Head Centered"]}</div>
-                <div><b>Head Not Centered:</b> {bodyLangData.state_timers?.["Head Not Centered"]}</div>
-                <div><b>Session Time:</b> {bodyLangData.total_time}</div>
-                {bodyLangData.detected_objects && bodyLangData.detected_objects.length > 0 && (
-                  <div style={{ marginTop: 4 }}>
-                    <b>Objects Detected:</b>
-                    <ul>
-                      {bodyLangData.detected_objects.map((obj: any, idx: number) => (
-                        <li key={idx}>{obj.label} ({Math.round(obj.confidence * 100)}%)</li>
-                      ))}
-                    </ul>
+                <button
+                  style={{
+                    margin: "12px 0 8px 0",
+                    padding: "6px 16px",
+                    background: "#e9f1ff",
+                    color: "#1a237e",
+                    borderRadius: 8,
+                    fontWeight: 600,
+                    border: "none",
+                    cursor: "pointer",
+                    width: "100%",
+                    textAlign: "left"
+                  }}
+                  onClick={() => setShowBodyLangDetails((prev) => !prev)}
+                >
+                  {showBodyLangDetails ? "Hide Details ▲" : "Show All Parameters ▼"}
+                </button>
+                {showBodyLangDetails && (
+                  <div style={{ fontSize: 15, marginTop: 4 }}>
+                    <div><b>Time in Focus:</b> {bodyLangData.state_timers?.["Eyes Focused"]}</div>
+                    <div><b>Time Looking Left:</b> {bodyLangData.state_timers?.["Looking Left"]}</div>
+                    <div><b>Time Looking Right:</b> {bodyLangData.state_timers?.["Looking Right"]}</div>
+                    <div><b>Head Centered:</b> {bodyLangData.state_timers?.["Head Centered"]}</div>
+                    <div><b>Head Not Centered:</b> {bodyLangData.state_timers?.["Head Not Centered"]}</div>
+                    <div><b>Session Time:</b> {bodyLangData.total_time}</div>
+                    {bodyLangData.detected_objects && bodyLangData.detected_objects.length > 0 && (
+                      <div style={{ marginTop: 4 }}>
+                        <b>Objects Detected:</b>
+                        <ul>
+                          {bodyLangData.detected_objects.map((obj: any, idx: number) => (
+                            <li key={idx}>{obj.label} ({Math.round(obj.confidence * 100)}%)</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 )}
-                {/* Actionable suggestions */}
-                <div style={{
-                  marginTop: 12,
-                  color: "#e11d48",
-                  fontWeight: 600,
-                  fontSize: 15,
-                  background: "#fef2f2",
-                  borderRadius: 8,
-                  padding: "8px 12px"
-                }}>
-                  {bodyLangData.eye_status !== "Eyes Focused" && "Try to maintain eye contact. "}
-                  {bodyLangData.head_status !== "Head Centered" && "Keep your head centered. "}
-                  {bodyLangData.emotion === "Neutral" && "Show more positive emotion. "}
-                  {bodyLangData.pose_status !== "Pose detected" && "Sit upright and stay visible. "}
-                </div>
               </div>
             ) : (
               <div>Analyzing...</div>

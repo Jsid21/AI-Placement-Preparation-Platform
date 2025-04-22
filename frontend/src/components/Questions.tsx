@@ -10,8 +10,11 @@ interface QuestionsProps {
 
 // Add this helper function near the top of the file (after imports)
 function cleanQuestionType(question: string) {
-  // Remove all asterisks and trim spaces
-  return question.replace(/\*+/g, "").trim();
+  // Remove all asterisks, then remove leading type label (e.g., Technical Question:)
+  return question
+    .replace(/\*+/g, "") // Remove all asterisks
+    .replace(/^(Technical|Behavioral|HR|General)\s*Question:?\s*/i, "") // Remove type label at start
+    .trim();
 }
 
 export function Questions({ questions, onSubmit }: QuestionsProps) {
@@ -386,7 +389,7 @@ export function Questions({ questions, onSubmit }: QuestionsProps) {
         >
           <h3 className="font-semibold text-lg mb-2 text-[#1a237e] flex items-center">
             <span className="mr-2 bg-[#3b82f6] text-white rounded-full w-8 h-8 flex items-center justify-center">{activeQuestion + 1}</span>
-            {questions[activeQuestion]}
+            {cleanQuestionType(questions[activeQuestion])}
           </h3>
           <div className="mt-4">
             <label className="block text-[#374151] mb-2 font-medium" htmlFor="answer">

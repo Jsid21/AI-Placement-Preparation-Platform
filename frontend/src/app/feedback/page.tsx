@@ -59,6 +59,7 @@ export default function FeedbackPage() {
   const [personalityResults, setPersonalityResults] = useState<{ [key: number]: any }>({});
   const [bodyLangFeedback, setBodyLangFeedback] = useState<any>(null);
   const [answerFeedbacks, setAnswerFeedbacks] = useState<{ [key: number]: string }>({});
+  const [openFeedback, setOpenFeedback] = useState<{ [key: number]: boolean }>({});
   const router = useRouter();
   const feedbackRef = useRef<HTMLDivElement>(null);
 
@@ -239,95 +240,105 @@ export default function FeedbackPage() {
                   <h3 className={`font-semibold mb-2 rounded px-3 py-2 inline-block ${color}`}>
                     Q{idx + 1}: {type} Question: {cleanQuestion}
                   </h3>
-                  {res.noAudio ? (
-                    <div className="text-red-500">No audio recorded for this question.</div>
-                  ) : (
-                    <div className="flex flex-col md:flex-row md:items-center md:justify-between">
-                      <ul className="ml-4 text-sm flex-1">
-                        <li>Duration: {res.duration_sec?.toFixed(2)} sec</li>
-                        <li>Pitch: {res.avg_pitch?.toFixed(2)}</li>
-                        <li>Pace (BPM): {res.tempo_bpm?.toFixed(2)}</li>
-                        <li>Volume: {res.avg_volume?.toFixed(4)}</li>
-                        <li>Pauses: {res.num_pauses?.toFixed(1)}</li>
-                        <li>Total Pause Time: {res.total_pauses_sec?.toFixed(2)} sec</li>
-                        {res.sentiment && (
-                          <>
-                            <li>Sentiment Polarity: {res.sentiment.polarity?.toFixed(2)}</li>
-                            <li>Subjectivity: {res.sentiment.subjectivity?.toFixed(2)}</li>
-                          </>
-                        )}
-                      </ul>
-                      {personalityResults[idx] && (
-                        <div style={{ width: 360, height: 180 }}>
-                          <ResponsiveContainer width="100%" height="100%">
-                            <BarChart
-                              data={Object.entries(personalityResults[idx]).map(([trait, value]) => ({
-                                trait,
-                                value: Number(value),
-                              }))}
-                              layout="vertical"
-                              margin={{ top: 10, right: 20, left: 20, bottom: 10 }}
-                            >
-                              <XAxis type="number" domain={[0, 1]} hide />
-                              <YAxis
-                                dataKey="trait"
-                                type="category"
-                                tick={{ fontWeight: 600, fill: "#3b82f6" }}
-                                width={150}
-                              />
-                              <Tooltip
-                                cursor={{ fill: "#e0e7ff" }}
-                                formatter={(v: number) => v.toFixed(2)}
-                              />
-                              <Bar
-                                dataKey="value"
-                                fill="#f59e42"
-                                radius={[10, 10, 10, 10]}
-                                isAnimationActive={true}
-                                barSize={28}
-                              >
-                                {Object.entries(personalityResults[idx]).map(([_, __], i) => (
-                                  <Cell
-                                    key={`cell-${i}`}
-                                    fill={
-                                      [
-                                        "#f59e42", // Extroversion
-                                        "#6366f1", // Neuroticism
-                                        "#34d399", // Agreeableness
-                                        "#fbbf24", // Conscientiousness
-                                        "#3b82f6", // Openness
-                                      ][i]
-                                    }
+                  <button
+                    className="mt-2 mb-2 px-4 py-1 bg-[#e9f1ff] hover:bg-[#3b82f6] hover:text-white text-[#1a237e] rounded-full font-semibold transition"
+                    onClick={() => setOpenFeedback((prev) => ({ ...prev, [idx]: !prev[idx] }))}
+                  >
+                    {openFeedback[idx] ? "Hide Feedback" : "Show Feedback"}
+                  </button>
+                  {openFeedback[idx] && (
+                    <div className="mt-2">
+                      {res.noAudio ? (
+                        <div className="text-red-500">No audio recorded for this question.</div>
+                      ) : (
+                        <div className="flex flex-col md:flex-row md:items-center md:justify-between">
+                          <ul className="ml-4 text-sm flex-1">
+                            <li>Duration: {res.duration_sec?.toFixed(2)} sec</li>
+                            <li>Pitch: {res.avg_pitch?.toFixed(2)}</li>
+                            <li>Pace (BPM): {res.tempo_bpm?.toFixed(2)}</li>
+                            <li>Volume: {res.avg_volume?.toFixed(4)}</li>
+                            <li>Pauses: {res.num_pauses?.toFixed(1)}</li>
+                            <li>Total Pause Time: {res.total_pauses_sec?.toFixed(2)} sec</li>
+                            {res.sentiment && (
+                              <>
+                                <li>Sentiment Polarity: {res.sentiment.polarity?.toFixed(2)}</li>
+                                <li>Subjectivity: {res.sentiment.subjectivity?.toFixed(2)}</li>
+                              </>
+                            )}
+                          </ul>
+                          {personalityResults[idx] && (
+                            <div style={{ width: 360, height: 180 }}>
+                              <ResponsiveContainer width="100%" height="100%">
+                                <BarChart
+                                  data={Object.entries(personalityResults[idx]).map(([trait, value]) => ({
+                                    trait,
+                                    value: Number(value),
+                                  }))}
+                                  layout="vertical"
+                                  margin={{ top: 10, right: 20, left: 20, bottom: 10 }}
+                                >
+                                  <XAxis type="number" domain={[0, 1]} hide />
+                                  <YAxis
+                                    dataKey="trait"
+                                    type="category"
+                                    tick={{ fontWeight: 600, fill: "#3b82f6" }}
+                                    width={150}
                                   />
-                                ))}
-                              </Bar>
-                            </BarChart>
-                          </ResponsiveContainer>
+                                  <Tooltip
+                                    cursor={{ fill: "#e0e7ff" }}
+                                    formatter={(v: number) => v.toFixed(2)}
+                                  />
+                                  <Bar
+                                    dataKey="value"
+                                    fill="#f59e42"
+                                    radius={[10, 10, 10, 10]}
+                                    isAnimationActive={true}
+                                    barSize={28}
+                                  >
+                                    {Object.entries(personalityResults[idx]).map(([_, __], i) => (
+                                      <Cell
+                                        key={`cell-${i}`}
+                                        fill={
+                                          [
+                                            "#f59e42", // Extroversion
+                                            "#6366f1", // Neuroticism
+                                            "#34d399", // Agreeableness
+                                            "#fbbf24", // Conscientiousness
+                                            "#3b82f6", // Openness
+                                          ][i]
+                                        }
+                                      />
+                                    ))}
+                                  </Bar>
+                                </BarChart>
+                              </ResponsiveContainer>
+                            </div>
+                          )}
                         </div>
                       )}
-                    </div>
-                  )}
-                  {answerFeedbacks[idx] && (
-                    <div className="mt-4 p-5 bg-white rounded-xl shadow border border-[#e0e7ff]">
-                      <h4 className="text-lg font-bold text-[#3b82f6] mb-2">AI Interview Feedback</h4>
-                      <div
-                        className="space-y-2 text-[#1a237e] text-base leading-relaxed"
-                        suppressHydrationWarning
-                        dangerouslySetInnerHTML={{
-                          __html:
-                            answerFeedbacks[idx]
-                              .replace(/\*\*(.*?)\*\*/g, '<span class="font-semibold text-[#3b82f6]">$1</span>')
-                              .replace(/\*/g, "")
-                              .replace(/(?:\r\n|\r|\n)/g, "<br />")
-                              .replace(/^\d+\.\s/gm, '<span class="font-semibold text-[#f59e42]">•</span> ')
-                              .replace(/Actionable Improvement Suggestions:/g, '<span class="font-semibold text-[#34d399]">Suggestions:</span>')
-                              .replace(/Job Fit Score:/g, '<span class="font-semibold text-[#f43f5e]">Job Fit Score:</span>')
-                              .replace(/Correctness:/g, '<span class="font-semibold">Correctness:</span>')
-                              .replace(/Depth:/g, '<span class="font-semibold">Depth:</span>')
-                              .replace(/Relevance to the Job:/g, '<span class="font-semibold">Relevance to the Job:</span>')
-                              .replace(/Communication Clarity:/g, '<span class="font-semibold">Communication Clarity:</span>')
-                        }}
-                      />
+                      {answerFeedbacks[idx] && (
+                        <div className="mt-4 p-5 bg-white rounded-xl shadow border border-[#e0e7ff]">
+                          <h4 className="text-lg font-bold text-[#3b82f6] mb-2">AI Interview Feedback</h4>
+                          <div
+                            className="space-y-2 text-[#1a237e] text-base leading-relaxed"
+                            suppressHydrationWarning
+                            dangerouslySetInnerHTML={{
+                              __html:
+                                answerFeedbacks[idx]
+                                  .replace(/\*\*(.*?)\*\*/g, '<span class="font-semibold text-[#3b82f6]">$1</span>')
+                                  .replace(/\*/g, "")
+                                  .replace(/(?:\r\n|\r|\n)/g, "<br />")
+                                  .replace(/^\d+\.\s/gm, '<span class="font-semibold text-[#f59e42]">•</span> ')
+                                  .replace(/Actionable Improvement Suggestions:/g, '<span class="font-semibold text-[#34d399]">Suggestions:</span>')
+                                  .replace(/Job Fit Score:/g, '<span class="font-semibold text-[#f43f5e]">Job Fit Score:</span>')
+                                  .replace(/Correctness:/g, '<span class="font-semibold">Correctness:</span>')
+                                  .replace(/Depth:/g, '<span class="font-semibold">Depth:</span>')
+                                  .replace(/Relevance to the Job:/g, '<span class="font-semibold">Relevance to the Job:</span>')
+                                  .replace(/Communication Clarity:/g, '<span class="font-semibold">Communication Clarity:</span>')
+                            }}
+                          />
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
