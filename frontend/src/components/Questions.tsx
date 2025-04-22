@@ -8,6 +8,12 @@ interface QuestionsProps {
   onSubmit?: () => void; // Add this prop
 }
 
+// Add this helper function near the top of the file (after imports)
+function cleanQuestionType(question: string) {
+  // Remove all asterisks and trim spaces
+  return question.replace(/\*+/g, "").trim();
+}
+
 export function Questions({ questions, onSubmit }: QuestionsProps) {
   const [activeQuestion, setActiveQuestion] = useState(0);
   const [answers, setAnswers] = useState<Record<number, string>>({});
@@ -569,9 +575,8 @@ export function Questions({ questions, onSubmit }: QuestionsProps) {
             transition={{ duration: 0.3, delay: index * 0.07 }}
             className="p-5 border border-[#e9f1ff] rounded-lg bg-[#f3f6fb]"
           >
-            <div className="flex items-start">
-              <span className="font-semibold text-white bg-[#3b82f6] rounded-full w-8 h-8 flex items-center justify-center mr-3">{index + 1}</span>
-              <p className="font-medium text-[#1a237e]">{question}</p>
+            <div className="font-medium text-lg mb-2 text-[#1a237e]">
+              {cleanQuestionType(question)}
             </div>
             {answers[index] && (
               <div className="mt-3 pt-3 border-t border-[#e9f1ff]">
