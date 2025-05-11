@@ -32,6 +32,14 @@ export default function LandingPage() {
           >
             Start Interview
           </motion.button>
+          <motion.button
+            whileHover={{ scale: 1.07 }}
+            whileTap={{ scale: 0.97 }}
+            onClick={() => router.push("/aptitude")}
+            className="ml-4 px-10 py-4 bg-gradient-to-r from-[#f59e42] to-[#fbbf24] text-[#1a237e] text-xl font-semibold rounded-full shadow-lg transition-all duration-200 hover:from-[#fbbf24] hover:to-[#f59e42] focus:outline-none focus:ring-4 focus:ring-yellow-300 text-left"
+          >
+            Start Aptitude Test
+          </motion.button>
         </motion.div>
         {/* Right: Image */}
         <motion.div

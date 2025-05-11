@@ -1,6 +1,6 @@
 import os
 import requests
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, Depends, Request
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, Depends, Request, Body
 from fastapi.responses import JSONResponse
 from app.services.resume_service import extract_resume_text, remove_personal_info
 from app.services.question_service import generate_interview_questions
@@ -182,3 +182,152 @@ async def analyze_answer_feedback(request: Request):
         return {"feedback": feedback}
     except Exception as e:
         return {"feedback": f"Error analyzing answer: {str(e)}"}
+
+import requests, re, json
+
+@router.post("/generate-aptitude-questions")
+async def generate_aptitude_questions(
+    num_questions: int = Body(...),
+    categories: list = Body(...)
+):
+    if not GROQ_API_KEY:
+        logger.error("Groq API key not configured.")
+        return JSONResponse(status_code=500, content={"detail": "Groq API key not configured."})
+
+    prompt = f"""
+You are an expert aptitude question generator helping candidates prepare for placement and interview tests.
+
+Your task is to generate exactly {num_questions} high-quality, intermediate-to-advanced level **aptitude questions** from the following categories:
+{', '.join(categories)}.
+
+---
+
+🔍 Your approach:
+1. Think step-by-step about each question. Use reasoning to ensure that it is conceptually sound, relevant, and challenging enough for competitive exams.
+2. For quantitative problems, carefully construct correct mathematical expressions, numbers, and choices.
+3. For logical or analytical problems, make sure patterns, reasoning steps, or coding logic are coherent and solvable.
+
+---
+
+📦 For each question, return it in this **strict JSON format** only:
+
+{{
+  "questions": [
+    {{
+      "question": "question text",
+      "options": {{
+        "A": "option A text",
+        "B": "option B text",
+        "C": "option C text",
+        "D": "option D text"
+      }},
+      "correct_answer": "B",
+      "explanation": "Brief chain-of-thought reasoning explaining the correct answer"
+    }},
+    ...
+  ]
+}}
+
+🚫 IMPORTANT:
+- Do NOT include any text before or after the JSON block.
+- Do NOT include markdown, labels like "Answer:", "Explanation:", or commentary.
+- Do NOT repeat or rephrase the prompt.
+- Keep all options inside the "options" key.
+- All output must be directly parsable as JSON.
+
+---
+
+🎓 EXAMPLES to follow:
+
+Example 1 — Category: Quantitative Aptitude  
+{{
+  "question": "A boat covers 24 km upstream in 6 hours and the same distance downstream in 4 hours. What is the speed of the boat in still water?",
+  "options": {{
+    "A": "4 km/h",
+    "B": "5 km/h",
+    "C": "6 km/h",
+    "D": "7 km/h"
+  }},
+  "correct_answer": "C",
+  "explanation": "Upstream speed = 24/6 = 4 km/h, Downstream speed = 24/4 = 6 km/h. Speed in still water = (6 + 4)/2 = 5 km/h → correct answer is B."
+}}
+
+Example 2 — Category: Logical Reasoning  
+{{
+  "question": "If 'EARTH' is coded as 'GCTUJ', how is 'WORLD' coded in the same way?",
+  "options": {{
+    "A": "YQTNF",
+    "B": "YPVNE",
+    "C": "YQUNE",
+    "D": "YQTNH"
+  }},
+  "correct_answer": "A",
+  "explanation": "Each letter is shifted +2 alphabetically: W→Y, O→Q, R→T, L→N, D→F. So, WORLD becomes YQTNF."
+}}
+
+Example 3 — Category: Data Interpretation  
+{{
+  "question": "A company’s profit increased from $120,000 in 2022 to $150,000 in 2023. What is the percentage increase?",
+  "options": {{
+    "A": "20%",
+    "B": "22.5%",
+    "C": "25%",
+    "D": "30%"
+  }},
+  "correct_answer": "C",
+  "explanation": "Change = 150,000 - 120,000 = 30,000 → (30,000 / 120,000) * 100 = 25%."
+}}
+
+---
+
+Now, generate the questions based on the categories provided. Remember to apply reasoning, and return a clean JSON object exactly in the above structure.
+"""
+
+    payload = {
+        "model": GROQ_MODEL,
+        "messages": [
+            {"role": "system", "content": "You are an expert aptitude test generator."},
+            {"role": "user", "content": prompt}
+        ],
+        "max_tokens": 2048,
+        "temperature": 0.7,
+    }
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    try:
+        response = requests.post(GROQ_API_URL, headers=headers, json=payload)
+        logger.info(f"Groq API status: {response.status_code}")
+        if response.status_code != 200:
+            logger.error(f"Groq API error: {response.status_code} - {response.text}")
+            return JSONResponse(status_code=500, content={"detail": f"Groq API error: {response.status_code} - {response.text}"})
+        result = response.json()
+        text = result["choices"][0]["message"]["content"]
+        logger.info(f"Groq raw response: {text[:500]}")  # Log first 500 chars
+
+        # Remove markdown code block if present
+        text = re.sub(r"^```json", "", text.strip(), flags=re.MULTILINE)
+        text = re.sub(r"^```", "", text.strip(), flags=re.MULTILINE)
+        # Try to extract JSON object
+        match = re.search(r'\{[\s\S]*\}', text)
+        if match:
+            json_str = match.group(0)
+        else:
+            json_str = text
+
+        try:
+            data = json.loads(json_str)
+        except Exception as e:
+            logger.error(f"JSON decode error: {e}\nRaw: {text}")
+            return JSONResponse(status_code=500, content={"detail": f"Failed to parse Groq response as JSON. Raw: {text}"})
+
+        if "questions" not in data or not isinstance(data["questions"], list):
+            logger.error("No 'questions' key in Groq response or not a list.")
+            return JSONResponse(status_code=500, content={"detail": "Groq response did not contain 'questions'."})
+
+        return {"questions": data["questions"]}
+    except Exception as e:
+        logger.error(f"Exception in /generate-aptitude-questions: {e}")
+        return JSONResponse(status_code=500, content={"detail": f"Failed to generate questions: {str(e)}"})

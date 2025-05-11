@@ -12,7 +12,9 @@ GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
 # Choose a model: "llama3-70b-8192", "llama3-8b-8192", "mixtral-8x7b-32768", "gemma-7b-it"
-GROQ_MODEL = "llama3-70b-8192"
+# GROQ_MODEL = "llama3-70b-8192"
+GROQ_MODEL = "llama-3.3-70b-versatile"
+
 
 async def generate_interview_questions(resume_text: str, job_role: str, num_questions: int = 10) -> List[str]:
     """
