@@ -346,7 +346,7 @@ export function Questions({ questions, onSubmit }: QuestionsProps) {
       localStorage.setItem("analysisResults", JSON.stringify(results));
 
       // After collecting answers:
-      const feedbacks: { [key: number]: string } = {};
+      const feedbacks: { [key: number]: any } = {};
       for (let i = 0; i < questions.length; i++) {
         if (answers[i]) {
           feedbacks[i] = await fetchAnswerFeedback(questions[i], answers[i]);
@@ -357,6 +357,46 @@ export function Questions({ questions, onSubmit }: QuestionsProps) {
 
       setSubmitted(true);
       setSubmitError(null);
+
+      // Send session report
+      const sessionId = "some-session-id"; // Replace with actual session ID logic
+      const totalSeconds = results.reduce((sum, r) => sum + (r.duration_sec || 0), 0);
+      const formattedTime = new Date(totalSeconds * 1000).toISOString().substr(11, 8); // HH:mm:ss
+
+      const eyeStates = {}; // Collect or calculate eye states
+      const headStates = {}; // Collect or calculate head states
+      const emotions = {}; // Collect or calculate emotions
+      const framesProcessed = 0; // Replace with actual frame count if available
+      const attentionScore = 0; // Replace with actual attention score if available
+
+      const feedback = {
+        candidate_response: Object.values(answers),
+        correctness: analysisResults.reduce((sum, r) => sum + (r.correctness || 0), 0) / analysisResults.length || null,
+        depth: analysisResults.reduce((sum, r) => sum + (r.depth || 0), 0) / analysisResults.length || null,
+        relevance: analysisResults.reduce((sum, r) => sum + (r.relevance || 0), 0) / analysisResults.length || null,
+        communication_clarity: analysisResults.reduce((sum, r) => sum + (r.communication_clarity || 0), 0) / analysisResults.length || null,
+        job_fit_score: analysisResults.reduce((sum, r) => sum + (r.job_fit_score || 0), 0) / analysisResults.length || null,
+        suggestions: [].concat(...analysisResults.map(r => r.suggestions || [])),
+        recommendation: analysisResults.map(r => r.recommendation).filter(Boolean).join(" ") || "No recommendation.",
+        assessment_text: analysisResults.map(r => r.assessment_text).filter(Boolean).join("\n") || null
+      };
+
+      const sessionReport = {
+        session_id: sessionId,
+        total_time: { seconds: totalSeconds, formatted: formattedTime },
+        eye_states: eyeStates,
+        head_states: headStates,
+        emotions: emotions,
+        frames_processed: framesProcessed,
+        attention_score: attentionScore,
+        ai_feedback: feedback
+      };
+
+      await fetch('http://localhost:4000/session-report/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sessionReport),
+      });
     } catch (e) {
       setSubmitError("Submission failed. Please try again.");
       console.error(e);
