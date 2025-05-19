@@ -7,9 +7,23 @@ export default function LandingPage() {
   const router = useRouter();
 
   return (
-    <main
-      className="min-h-screen flex items-center justify-center relative overflow-hidden"
-    >
+    <main className="min-h-screen flex items-center justify-center relative overflow-hidden">
+      {/* Top-right Login/Signup buttons */}
+      <div className="absolute top-0 right-0 p-6 z-20 flex space-x-4">
+        <button
+          onClick={() => router.push("/login")}
+          className="px-6 py-2 bg-white text-[#1a237e] font-semibold rounded-full shadow hover:bg-[#e3e8f7] transition"
+        >
+          Login
+        </button>
+        <button
+          onClick={() => router.push("/signup")}
+          className="px-6 py-2 bg-[#1a237e] text-white font-semibold rounded-full shadow hover:bg-[#3b82f6] transition"
+        >
+          Sign Up
+        </button>
+      </div>
+
       <div className="relative z-10 w-full max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between px-6 py-12">
         {/* Left: Text Content */}
         <motion.div

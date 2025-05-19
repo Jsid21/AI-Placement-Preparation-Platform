@@ -33,6 +33,7 @@ export function Questions({ questions, onSubmit }: QuestionsProps) {
   const [analysisResults, setAnalysisResults] = useState<any[]>([]);
   const [sentimentPerQuestion, setSentimentPerQuestion] = useState<{ [key: number]: any }>({});
   const [answerFeedbacks, setAnswerFeedbacks] = useState<{ [key: number]: string }>({});
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Setup Speech Recognition
   useEffect(() => {
@@ -277,83 +278,89 @@ export function Questions({ questions, onSubmit }: QuestionsProps) {
   };
 
   const handleSubmitInterview = async () => {
-    // For each question, ensure sentiment is available
-    const updatedSentiment: { [key: number]: any } = { ...sentimentPerQuestion };
-    for (let q = 0; q < questions.length; q++) {
-      if (!updatedSentiment[q] && answers[q]) {
-        try {
-          const res = await fetch("http://localhost:8000/api/analyze-sentiment", {
+    try {
+      // For each question, ensure sentiment is available
+      const updatedSentiment: { [key: number]: any } = { ...sentimentPerQuestion };
+      for (let q = 0; q < questions.length; q++) {
+        if (!updatedSentiment[q] && answers[q]) {
+          try {
+            const res = await fetch("http://localhost:8000/api/analyze-sentiment", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ text: answers[q] }),
+            });
+            if (res.ok) {
+              updatedSentiment[q] = await res.json();
+            }
+          } catch (e) {
+            updatedSentiment[q] = null;
+          }
+        }
+      }
+      setSentimentPerQuestion(updatedSentiment);
+
+      // For each question, for each audio blob, call /api/analyze-audio and collect results
+      const results: any[] = [];
+      for (let q = 0; q < questions.length; q++) {
+        const blobs = audioBlobsPerQuestion[q] || [];
+        const featuresList: any[] = [];
+        for (let i = 0; i < blobs.length; i++) {
+          // Upload each audio blob (if not already uploaded)
+          const formData = new FormData();
+          formData.append("audio", blobs[i], `answer_${Date.now()}_${i}.webm`);
+          formData.append("question_id", q.toString());
+          await fetch("http://localhost:8000/api/upload-audio", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text: answers[q] }),
+            body: formData,
+          });
+          // Analyze
+          const analyzeForm = new FormData();
+          analyzeForm.append("question_id", q.toString());
+          const res = await fetch("http://localhost:8000/api/analyze-audio", {
+            method: "POST",
+            body: analyzeForm,
           });
           if (res.ok) {
-            updatedSentiment[q] = await res.json();
+            const features = await res.json();
+            featuresList.push(features);
           }
-        } catch (e) {
-          updatedSentiment[q] = null;
+        }
+        if (featuresList.length > 0) {
+          const avg = (key: string) =>
+            featuresList.reduce((sum, f) => sum + (f[key] || 0), 0) / featuresList.length;
+          results.push({
+            question: questions[q],
+            duration_sec: avg("duration_sec"),
+            avg_pitch: avg("avg_pitch"),
+            tempo_bpm: avg("tempo_bpm"),
+            avg_volume: avg("avg_volume"),
+            total_pauses_sec: avg("total_pauses_sec"),
+            num_pauses: avg("num_pauses"),
+            sentiment: updatedSentiment[q] || null,
+          });
+        } else {
+          results.push({ question: questions[q], noAudio: true, sentiment: updatedSentiment[q] || null });
         }
       }
-    }
-    setSentimentPerQuestion(updatedSentiment);
+      setAnalysisResults(results);
+      localStorage.setItem("analysisResults", JSON.stringify(results));
 
-    // For each question, for each audio blob, call /api/analyze-audio and collect results
-    const results: any[] = [];
-    for (let q = 0; q < questions.length; q++) {
-      const blobs = audioBlobsPerQuestion[q] || [];
-      const featuresList: any[] = [];
-      for (let i = 0; i < blobs.length; i++) {
-        // Upload each audio blob (if not already uploaded)
-        const formData = new FormData();
-        formData.append("audio", blobs[i], `answer_${Date.now()}_${i}.webm`);
-        formData.append("question_id", q.toString());
-        await fetch("http://localhost:8000/api/upload-audio", {
-          method: "POST",
-          body: formData,
-        });
-        // Analyze
-        const analyzeForm = new FormData();
-        analyzeForm.append("question_id", q.toString());
-        const res = await fetch("http://localhost:8000/api/analyze-audio", {
-          method: "POST",
-          body: analyzeForm,
-        });
-        if (res.ok) {
-          const features = await res.json();
-          featuresList.push(features);
+      // After collecting answers:
+      const feedbacks: { [key: number]: string } = {};
+      for (let i = 0; i < questions.length; i++) {
+        if (answers[i]) {
+          feedbacks[i] = await fetchAnswerFeedback(questions[i], answers[i]);
         }
       }
-      if (featuresList.length > 0) {
-        const avg = (key: string) =>
-          featuresList.reduce((sum, f) => sum + (f[key] || 0), 0) / featuresList.length;
-        results.push({
-          question: questions[q],
-          duration_sec: avg("duration_sec"),
-          avg_pitch: avg("avg_pitch"),
-          tempo_bpm: avg("tempo_bpm"),
-          avg_volume: avg("avg_volume"),
-          total_pauses_sec: avg("total_pauses_sec"),
-          num_pauses: avg("num_pauses"),
-          sentiment: updatedSentiment[q] || null,
-        });
-      } else {
-        results.push({ question: questions[q], noAudio: true, sentiment: updatedSentiment[q] || null });
-      }
-    }
-    setAnalysisResults(results);
-    localStorage.setItem("analysisResults", JSON.stringify(results));
+      setAnswerFeedbacks(feedbacks);
+      localStorage.setItem("answerFeedbacks", JSON.stringify(feedbacks));
 
-    // After collecting answers:
-    const feedbacks: { [key: number]: string } = {};
-    for (let i = 0; i < questions.length; i++) {
-      if (answers[i]) {
-        feedbacks[i] = await fetchAnswerFeedback(questions[i], answers[i]);
-      }
+      setSubmitted(true);
+      setSubmitError(null);
+    } catch (e) {
+      setSubmitError("Submission failed. Please try again.");
+      console.error(e);
     }
-    setAnswerFeedbacks(feedbacks);
-    localStorage.setItem("answerFeedbacks", JSON.stringify(feedbacks));
-
-    setSubmitted(true);
   };
 
   const handleSubmit = () => {
