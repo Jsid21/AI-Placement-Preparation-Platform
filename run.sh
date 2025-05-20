@@ -93,6 +93,18 @@ deactivate
 
 echo ""
 
+# --- Auth Backend setup ---
+echo "Setting up auth-backend..."
+cd ../auth-backend || { echo "Error: Auth Backend directory not found"; exit 1; }
+
+echo "Installing auth-backend dependencies..."
+npm install
+echo "✅ Auth-backend dependencies installed."
+
+deactivate
+
+echo ""
+
 # --- Frontend setup ---
 echo "Setting up frontend..."
 cd ../frontend || { echo "Error: Frontend directory not found"; exit 1; }
@@ -114,11 +126,22 @@ BACKEND_PID=$!
 deactivate
 echo "Backend server started with PID: $BACKEND_PID"
 
+# Start auth-backend in the background
+cd ../auth-backend || { echo "Error: Auth Backend directory not found"; exit 1; }
+echo "Starting Auth Backend server on http://localhost:4000..."
+node index.js &
+AUTH_BACKEND_PID=$!
+echo "Auth Backend server started with PID: $AUTH_BACKEND_PID"
+
 # Start body-language-service in the background
 cd ../body-language-service || { echo "Error: Body Language Service directory not found"; exit 1; }
-source venv/bin/activate
+if [[ "$OSTYPE" == "darwin"* || "$OSTYPE" == "linux-gnu"* ]]; then
+  source venv/bin/activate || { echo "Error: Failed to activate virtual environment"; exit 1; }
+elif [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then
+  source venv/Scripts/activate || { echo "Error: Failed to activate virtual environment"; exit 1; }
+fi
 echo "Starting Body Language Service on http://localhost:8001..."
-uvicorn main:app --host 0.0.0.0 --port 8001 --reload &
+python -m uvicorn main:app --host 0.0.0.0 --port 8001 --reload &
 BODYLANG_PID=$!
 deactivate
 echo "Body Language Service started with PID: $BODYLANG_PID"
@@ -136,6 +159,7 @@ echo "  🚀 AI Placement Preparation Platform is running!     "
 echo "======================================================"
 echo "  📱 Frontend: http://localhost:3000                  "
 echo "  ⚙️ Backend API: http://localhost:8000                "
+echo "  🔐 Auth Backend: http://localhost:4000              "
 echo "  🤳 Body Language API: http://localhost:8001          "
 echo ""
 echo "  Press Ctrl+C to stop all services                   "
@@ -146,6 +170,7 @@ cleanup() {
   kill $BACKEND_PID 2>/dev/null
   kill $FRONTEND_PID 2>/dev/null
   kill $BODYLANG_PID 2>/dev/null
+  kill $AUTH_BACKEND_PID 2>/dev/null
   echo "Services stopped. Goodbye!"
   exit 0
 }

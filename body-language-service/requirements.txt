@@ -8,3 +8,4 @@ uvicorn
 ollama
 python-multipart
 ultralytics
+pymongo
