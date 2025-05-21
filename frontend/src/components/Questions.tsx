@@ -34,6 +34,13 @@ export function Questions({ questions, onSubmit }: QuestionsProps) {
   const [sentimentPerQuestion, setSentimentPerQuestion] = useState<{ [key: number]: any }>({});
   const [answerFeedbacks, setAnswerFeedbacks] = useState<{ [key: number]: string }>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [jobRole, setJobRole] = useState("");
+  const [numQuestions, setNumQuestions] = useState(3);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [jobRoleError, setJobRoleError] = useState<string | null>(null);
 
   // Setup Speech Recognition
   useEffect(() => {
@@ -403,9 +410,49 @@ export function Questions({ questions, onSubmit }: QuestionsProps) {
     }
   };
 
-  const handleSubmit = () => {
-    handleSubmitInterview(); // Existing submit logic
-    if (onSubmit) onSubmit(); // Call the callback
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!file) {
+      setFileError("Please upload your resume.");
+      return;
+    }
+    if (!jobRole.trim()) {
+      setJobRoleError("Please enter a job role.");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+
+    // Prepare form data
+    const formData = new FormData();
+    formData.append("resume", file);
+    formData.append("job_role", jobRole);
+    formData.append("num_questions", numQuestions.toString());
+
+    try {
+      const response = await fetch("http://localhost:8000/api/parse-resume", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        // Show backend error for empty/invalid PDF
+        setError(data.detail || "Failed to generate questions. Please upload a valid resume PDF.");
+        setQuestions([]);
+        return;
+      }
+      if (data.questions && Array.isArray(data.questions) && data.questions[0]?.startsWith("Failed to extract")) {
+        setError("Please upload a valid resume PDF with sufficient and relevant information.");
+        setQuestions([]);
+        return;
+      }
+      setQuestions(data.questions);
+    } catch (err) {
+      setError("Failed to generate questions. Please upload a valid resume PDF.");
+      setQuestions([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Sequential (Practice) Mode
@@ -657,6 +704,11 @@ export function Questions({ questions, onSubmit }: QuestionsProps) {
           Practice Mode
         </button>
       </motion.div>
+      {error && (
+  <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded my-4">
+    {error}
+  </div>
+)}
     </motion.div>
   );
 }

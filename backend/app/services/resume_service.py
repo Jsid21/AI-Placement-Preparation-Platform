@@ -78,3 +78,20 @@ def remove_personal_info(text: str) -> str:
         logger.info(f"Removed personal information. Character difference: {abs(original_length - cleaned_length)}")
     
     return cleaned_text
+
+def is_resume_text(text: str) -> bool:
+    """
+    Heuristic check to determine if the extracted text is likely from a resume.
+    Returns True if it looks like a resume, False otherwise.
+    """
+    if not text or len(text.strip()) < 50:
+        return False
+
+    # Common resume keywords
+    keywords = [
+        "education", "experience", "skills", "project", "summary", "objective",
+        "certification", "internship", "work history", "profile", "contact", "achievement"
+    ]
+    found = sum(1 for kw in keywords if kw in text.lower())
+    # Require at least 2-3 keywords for a valid resume
+    return found >= 2

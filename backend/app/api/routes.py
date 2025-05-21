@@ -2,7 +2,7 @@ import os
 import requests
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, Depends, Request, Body
 from fastapi.responses import JSONResponse
-from app.services.resume_service import extract_resume_text, remove_personal_info
+from app.services.resume_service import extract_resume_text, remove_personal_info, is_resume_text
 from app.services.question_service import generate_interview_questions
 from app.services.audio_analysis_service import extract_audio_features
 from app.services.sentiment_service import analyze_sentiment
@@ -66,6 +66,15 @@ async def parse_resume_and_generate_questions(
         
         # Extract text from the resume
         resume_text = await extract_resume_text(resume)
+
+        # Add this check:
+        from app.services.resume_service import is_resume_text
+
+        if not is_resume_text(resume_text):
+            raise HTTPException(
+                status_code=400,
+                detail="The uploaded PDF does not appear to be a valid resume. Please upload your resume in PDF format."
+            )
         
         if not resume_text or len(resume_text.strip()) < 50:
             raise HTTPException(status_code=400, detail="Could not extract sufficient text from the PDF. Please check if the PDF contains readable text.")
