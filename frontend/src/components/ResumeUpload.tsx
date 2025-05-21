@@ -60,14 +60,19 @@ export function ResumeUpload({ setQuestions, setLoading, setError }: ResumeUploa
         body: formData,
       });
       const data = await response.json();
-      console.log("API response:", data); // <-- Add this line
+      if (!response.ok) {
+        setError(data.detail || "Failed to generate questions. Please upload a valid resume PDF.");
+        setQuestions([]);
+        return;
+      }
       if (response.ok && data.questions) {
         setQuestions(data.questions);
       } else {
         setError(data.detail || "Failed to generate questions.");
       }
     } catch (err) {
-      setError("Failed to generate questions.");
+      setError("Failed to generate questions. Please upload a valid resume PDF.");
+      setQuestions([]);
     } finally {
       setLoading(false);
     }

@@ -3,6 +3,13 @@ const passport = require('passport');
 const User = require('../models/User');
 const router = express.Router();
 
+function ensureAuthenticated(req, res, next) {
+  if (req.isAuthenticated && req.isAuthenticated()) {
+    return next();
+  }
+  res.status(401).json({ message: "Not authenticated" });
+}
+
 router.post('/signup', async (req, res) => {
   const { username, password, email } = req.body; // Extract email from request body
   try {
@@ -40,13 +47,15 @@ router.get('/me', async (req, res) => {
       });
       return;
     }
-    res.json({ user: {
-      id: user._id,
-      username: user.username,
-      email: user.email,
-      displayName: user.displayName,
-      googleId: user.googleId
-    } });
+    res.json({
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        displayName: user.displayName,
+        googleId: user.googleId
+      }
+    });
   } catch (err) {
     console.error('Error fetching user:', err);
     res.status(500).json({ message: 'Error fetching user' });
@@ -55,14 +64,14 @@ router.get('/me', async (req, res) => {
 
 // Google OAuth Routes for Login
 router.get('/google',
-  passport.authenticate('google', { 
-    scope: ['profile', 'email'] 
+  passport.authenticate('google', {
+    scope: ['profile', 'email']
   })
 );
 
 // Google OAuth Routes for Signup - with state parameter to differentiate from login
 router.get('/google/signup',
-  passport.authenticate('google', { 
+  passport.authenticate('google', {
     scope: ['profile', 'email'],
     // Add state parameter to identify this is a signup request
     state: 'signup'
@@ -78,11 +87,18 @@ router.get('/google/callback',
   (req, res) => {
     // Check if this was a signup request using the state parameter
     const isSignup = req.query.state === 'signup';
-    
+
     // If this was a signup, we can add any signup-specific logic here
     // For now, we'll just redirect to the interview page in both cases
-    res.redirect('http://localhost:3000/interview');
+    // res.redirect('http://localhost:3000/interview');
+    res.redirect('http://localhost:3000/landing');
+
   }
 );
+
+// Example: Protect a route
+router.get('/protected-route', ensureAuthenticated, (req, res) => {
+  res.json({ message: "You are authenticated" });
+});
 
 module.exports = router;

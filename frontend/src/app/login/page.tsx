@@ -46,7 +46,7 @@ export default function LoginPage() {
       if (res.ok) {
         setUser(data.user); // Update the global auth state
         setMessage("Login successful! Redirecting...");
-        setTimeout(() => router.push("/interview"), 1000);
+        setTimeout(() => router.push("/landing"), 1000);
       } else {
         setMessage(data.message || "Login failed");
       }

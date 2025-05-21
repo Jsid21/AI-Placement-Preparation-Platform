@@ -58,7 +58,7 @@ async def generate_interview_questions(resume_text: str, job_role: str, num_ques
         
         if not resume_text or len(resume_text.strip()) < 50:
             logger.warning("Resume text is too short or empty")
-            return ["Failed to extract sufficient text from your resume. Please ensure your PDF contains readable text."]
+            return ["Failed to extract sufficient text from your resume. Please upload a valid resume PDF with enough relevant information (not blank or unrelated content)."]
         
         response = requests.post(GROQ_API_URL, headers=headers, json=payload)
         if response.status_code != 200:
