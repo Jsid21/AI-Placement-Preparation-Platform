@@ -17,7 +17,8 @@ function cleanQuestionType(question: string) {
     .trim();
 }
 
-export function Questions({ questions, onSubmit }: QuestionsProps) {
+export function Questions({ questions: initialQuestions, onSubmit }: QuestionsProps) {
+  const [questions, setQuestions] = useState<string[]>(initialQuestions);
   const [activeQuestion, setActiveQuestion] = useState(0);
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [showAllQuestions, setShowAllQuestions] = useState(false);
