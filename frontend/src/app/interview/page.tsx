@@ -4,6 +4,8 @@ import React, { useRef, useState, useEffect } from "react";
 import Webcam from "react-webcam";
 import { ResumeUpload } from '../../components/ResumeUpload';
 import { Questions } from '../../components/Questions';
+import { useAuth } from "@/contexts/AuthContext";
+import { useRouter } from "next/navigation";
 
 // Custom hook for draggable functionality
 function useDraggable(initial = { x: 40, y: 40 }) {
@@ -47,6 +49,21 @@ function useDraggable(initial = { x: 40, y: 40 }) {
 }
 
 export default function InterviewPage() {
+  const { user } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (user === null) {
+      // Not logged in, redirect to login
+      router.replace("/login");
+    }
+  }, [user, router]);
+
+  if (user === null) {
+    // Optionally show a loading spinner or nothing while redirecting
+    return null;
+  }
+
   const [questions, setQuestions] = useState<string[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);

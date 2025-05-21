@@ -3,6 +3,13 @@ const passport = require('passport');
 const User = require('../models/User');
 const router = express.Router();
 
+function ensureAuthenticated(req, res, next) {
+  if (req.isAuthenticated && req.isAuthenticated()) {
+    return next();
+  }
+  res.status(401).json({ message: "Not authenticated" });
+}
+
 router.post('/signup', async (req, res) => {
   const { username, password, email } = req.body; // Extract email from request body
   try {
@@ -88,5 +95,10 @@ router.get('/google/callback',
 
   }
 );
+
+// Example: Protect a route
+router.get('/protected-route', ensureAuthenticated, (req, res) => {
+  res.json({ message: "You are authenticated" });
+});
 
 module.exports = router;

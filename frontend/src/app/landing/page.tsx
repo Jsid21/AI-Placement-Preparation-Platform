@@ -1,9 +1,11 @@
 "use client";
 
+import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 
 export default function LandingPage() {
+  const { user } = useAuth();
   const router = useRouter();
 
   return (
@@ -27,7 +29,13 @@ export default function LandingPage() {
           <motion.button
             whileHover={{ scale: 1.07 }}
             whileTap={{ scale: 0.97 }}
-            onClick={() => router.push("/interview")}
+            onClick={() => {
+              if (user) {
+                router.push("/interview");
+              } else {
+                router.push("/login");
+              }
+            }}
             className="px-10 py-4 bg-gradient-to-r from-[#3b82f6] to-[#1a237e] text-white text-xl font-semibold rounded-full shadow-lg transition-all duration-200 hover:from-[#1a237e] hover:to-[#3b82f6] focus:outline-none focus:ring-4 focus:ring-blue-300 text-left"
           >
             Start Interview
