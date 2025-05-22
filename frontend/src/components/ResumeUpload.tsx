@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { motion } from "framer-motion";
+import { validateResume } from "@/utils/resumeValidator";
 
 interface ResumeUploadProps {
   setQuestions: (questions: string[]) => void;
@@ -36,42 +37,55 @@ export function ResumeUpload({ setQuestions, setLoading, setError }: ResumeUploa
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!file) {
-      setFileError("Please upload your resume.");
-      return;
-    }
-    if (!jobRole.trim()) {
-      setJobRoleError("Please enter a job role.");
-      return;
-    }
-    setLoading(true);
-    setError(null);
+  e.preventDefault();
+  if (!file) {
+    setFileError("Please upload your resume.");
+    return;
+  }
 
-    // Prepare form data
-    const formData = new FormData();
-    formData.append("resume", file);
-    formData.append("job_role", jobRole);
-    formData.append("num_questions", numQuestions.toString());
+  // Validate again before submission
+  const validationResult = await validateResume(file);
+  if (!validationResult.isValid) {
+    setFileError(validationResult.error || "Invalid file");
+    return;
+  }
 
-    try {
-      const response = await fetch("http://localhost:8000/api/parse-resume", {
-        method: "POST",
-        body: formData,
-      });
-      const data = await response.json();
-      console.log("API response:", data); // <-- Add this line
-      if (response.ok && data.questions) {
-        setQuestions(data.questions);
-      } else {
-        setError(data.detail || "Failed to generate questions.");
-      }
-    } catch (err) {
-      setError("Failed to generate questions.");
-    } finally {
-      setLoading(false);
+  if (!jobRole.trim()) {
+    setJobRoleError("Please enter a job role.");
+    return;
+  }
+
+  setLoading(true);
+  setError(null);
+
+  const formData = new FormData();
+  formData.append("resume", file);
+  formData.append("job_role", jobRole);
+  formData.append("num_questions", numQuestions.toString());
+
+  try {
+    const response = await fetch("http://localhost:8000/api/parse-resume", {
+      method: "POST",
+      body: formData,
+    });
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.detail || "Failed to process resume");
     }
-  };
+
+    if (!data.questions || data.questions.length === 0) {
+      throw new Error("No valid content found in resume");
+    }
+
+    setQuestions(data.questions);
+  } catch (err) {
+    setError(err instanceof Error ? err.message : "Failed to generate questions.");
+    setFileError("Please ensure your resume contains relevant professional information.");
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <motion.form
