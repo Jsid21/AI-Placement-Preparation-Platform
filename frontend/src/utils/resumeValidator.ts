@@ -6,7 +6,7 @@ export interface ValidationResult {
 export async function validateResume(file: File): Promise<ValidationResult> {
   // Check file size (minimum 1KB, maximum 5MB)
   const minSize = 1024; // 1KB
-  const maxSize = 5 * 1024 * 1024; // 5MB
+  const maxSize = 15 * 1024 * 1024; // 5MB
   
   if (file.size < minSize) {
     return {

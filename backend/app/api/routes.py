@@ -50,7 +50,7 @@ async def parse_resume_and_generate_questions(
     num_questions: int = Form(5),  # Default to 5 questions if not specified
 ):
     """
-    Parse a resume PDF and generate interview questions based on the resume and job role.
+    Parse a resume PDF and generate interview questions based on the resume and job role. the question should be short and it should be clear.
     """
     # Validate file type
     if resume.content_type != "application/pdf":
@@ -147,9 +147,11 @@ async def analyze_answer_feedback(request: Request):
     resume_text = data.get("resume_text")
 
     system_prompt = (
-        "You are an expert technical interviewer. Analyze the candidate's answer to the interview question below. "
-        "Provide feedback on correctness, depth, relevance to the job, and communication clarity. "
-        "Give a job fit score (0-100%) and actionable improvement suggestions. Format as a professional, structured assessment."
+    "You are an expert technical interviewer and evaluator. Your job is to assess a candidate's answer to an interview question "
+    "based on correctness, depth of knowledge, relevance to the job description and resume, and clarity of communication for all questions. keep it as a standard template. "
+    "If the answer is nonsensical, irrelevant, or does not attempt to answer the question (e.g., 'Hello 1234', 'mic test', repeating the question), "
+    "you must clearly state that the answer is irrelevant, assign a job fit score of 0%, and explain why. "
+    "Otherwise, provide a structured and professional assessment, a job fit score between 0-100%, and actionable improvement suggestions. take the answers as positive,  analyze the answer at moderate level not so strictly"
     )
 
     user_prompt = (
