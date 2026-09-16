@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 
 interface QuestionsProps {
@@ -18,6 +19,7 @@ function cleanQuestionType(question: string) {
 }
 
 export function Questions({ questions: initialQuestions, onSubmit }: QuestionsProps) {
+  const router = useRouter();
   const [questions, setQuestions] = useState<string[]>(initialQuestions);
   const [activeQuestion, setActiveQuestion] = useState(0);
   const [answers, setAnswers] = useState<Record<number, string>>({});
@@ -35,13 +37,8 @@ export function Questions({ questions: initialQuestions, onSubmit }: QuestionsPr
   const [sentimentPerQuestion, setSentimentPerQuestion] = useState<{ [key: number]: any }>({});
   const [answerFeedbacks, setAnswerFeedbacks] = useState<{ [key: number]: string }>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [file, setFile] = useState<File | null>(null);
-  const [jobRole, setJobRole] = useState("");
-  const [numQuestions, setNumQuestions] = useState(3);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [fileError, setFileError] = useState<string | null>(null);
-  const [jobRoleError, setJobRoleError] = useState<string | null>(null);
 
   // Setup Speech Recognition
   useEffect(() => {
@@ -286,6 +283,8 @@ export function Questions({ questions: initialQuestions, onSubmit }: QuestionsPr
   };
 
   const handleSubmitInterview = async () => {
+    setLoading(true);
+    setSubmitError(null);
     try {
       // For each question, ensure sentiment is available
       const updatedSentiment: { [key: number]: any } = { ...sentimentPerQuestion };
@@ -313,24 +312,30 @@ export function Questions({ questions: initialQuestions, onSubmit }: QuestionsPr
         const blobs = audioBlobsPerQuestion[q] || [];
         const featuresList: any[] = [];
         for (let i = 0; i < blobs.length; i++) {
-          // Upload each audio blob (if not already uploaded)
-          const formData = new FormData();
-          formData.append("audio", blobs[i], `answer_${Date.now()}_${i}.webm`);
-          formData.append("question_id", q.toString());
-          await fetch("http://localhost:8000/api/upload-audio", {
-            method: "POST",
-            body: formData,
-          });
-          // Analyze
-          const analyzeForm = new FormData();
-          analyzeForm.append("question_id", q.toString());
-          const res = await fetch("http://localhost:8000/api/analyze-audio", {
-            method: "POST",
-            body: analyzeForm,
-          });
-          if (res.ok) {
-            const features = await res.json();
-            featuresList.push(features);
+          try {
+            // Upload each audio blob
+            const formData = new FormData();
+            formData.append("audio", blobs[i], `answer_${Date.now()}_${i}.webm`);
+            formData.append("question_id", q.toString());
+            await fetch("http://localhost:8000/api/upload-audio", {
+              method: "POST",
+              body: formData,
+            });
+            // Analyze
+            const analyzeForm = new FormData();
+            analyzeForm.append("question_id", q.toString());
+            const res = await fetch("http://localhost:8000/api/analyze-audio", {
+              method: "POST",
+              body: analyzeForm,
+            });
+            if (res.ok) {
+              const features = await res.json();
+              if (features && !features.error) {
+                featuresList.push(features);
+              }
+            }
+          } catch (err) {
+            console.error("Audio processing error for Q" + q, err);
           }
         }
         if (featuresList.length > 0) {
@@ -353,11 +358,16 @@ export function Questions({ questions: initialQuestions, onSubmit }: QuestionsPr
       setAnalysisResults(results);
       localStorage.setItem("analysisResults", JSON.stringify(results));
 
-      // After collecting answers:
+      // After collecting answers, fetch LLM feedback
+      const storedJobDescription = typeof window !== "undefined" ? localStorage.getItem("jobDescription") || undefined : undefined;
       const feedbacks: { [key: number]: any } = {};
       for (let i = 0; i < questions.length; i++) {
         if (answers[i]) {
-          feedbacks[i] = await fetchAnswerFeedback(questions[i], answers[i]);
+          try {
+            feedbacks[i] = await fetchAnswerFeedback(questions[i], answers[i], storedJobDescription);
+          } catch (e) {
+            feedbacks[i] = "Could not generate feedback.";
+          }
         }
       }
       setAnswerFeedbacks(feedbacks);
@@ -366,91 +376,38 @@ export function Questions({ questions: initialQuestions, onSubmit }: QuestionsPr
       setSubmitted(true);
       setSubmitError(null);
 
-      // Send session report
-      const sessionId = "some-session-id"; // Replace with actual session ID logic
-      const totalSeconds = results.reduce((sum, r) => sum + (r.duration_sec || 0), 0);
-      const formattedTime = new Date(totalSeconds * 1000).toISOString().substr(11, 8); // HH:mm:ss
+      // Send session report to auth backend (optional / best-effort)
+      try {
+        const totalSeconds = results.reduce((sum, r) => sum + (r.duration_sec || 0), 0);
+        const formattedTime = new Date(totalSeconds * 1000).toISOString().substr(11, 8);
+        const sessionReport = {
+          session_id: "session_" + Date.now(),
+          total_time: { seconds: totalSeconds, formatted: formattedTime },
+          eye_states: {},
+          head_states: {},
+          emotions: {},
+          frames_processed: 0,
+          attention_score: 0,
+          ai_feedback: {
+            candidate_response: Object.values(answers),
+            assessment_text: Object.values(feedbacks).join("\n\n")
+          }
+        };
 
-      const eyeStates = {}; // Collect or calculate eye states
-      const headStates = {}; // Collect or calculate head states
-      const emotions = {}; // Collect or calculate emotions
-      const framesProcessed = 0; // Replace with actual frame count if available
-      const attentionScore = 0; // Replace with actual attention score if available
+        await fetch('http://localhost:4000/session-report/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(sessionReport),
+        });
+      } catch (err) {
+        console.warn("Session report save error:", err);
+      }
 
-      const feedback = {
-        candidate_response: Object.values(answers),
-        correctness: analysisResults.reduce((sum, r) => sum + (r.correctness || 0), 0) / analysisResults.length || null,
-        depth: analysisResults.reduce((sum, r) => sum + (r.depth || 0), 0) / analysisResults.length || null,
-        relevance: analysisResults.reduce((sum, r) => sum + (r.relevance || 0), 0) / analysisResults.length || null,
-        communication_clarity: analysisResults.reduce((sum, r) => sum + (r.communication_clarity || 0), 0) / analysisResults.length || null,
-        job_fit_score: analysisResults.reduce((sum, r) => sum + (r.job_fit_score || 0), 0) / analysisResults.length || null,
-        suggestions: [].concat(...analysisResults.map(r => r.suggestions || [])),
-        recommendation: analysisResults.map(r => r.recommendation).filter(Boolean).join(" ") || "No recommendation.",
-        assessment_text: analysisResults.map(r => r.assessment_text).filter(Boolean).join("\n") || null
-      };
-
-      const sessionReport = {
-        session_id: sessionId,
-        total_time: { seconds: totalSeconds, formatted: formattedTime },
-        eye_states: eyeStates,
-        head_states: headStates,
-        emotions: emotions,
-        frames_processed: framesProcessed,
-        attention_score: attentionScore,
-        ai_feedback: feedback
-      };
-
-      await fetch('http://localhost:4000/session-report/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(sessionReport),
-      });
+      // Automatically navigate to feedback page
+      router.push("/feedback");
     } catch (e) {
       setSubmitError("Submission failed. Please try again.");
       console.error(e);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!file) {
-      setFileError("Please upload your resume.");
-      return;
-    }
-    if (!jobRole.trim()) {
-      setJobRoleError("Please enter a job role.");
-      return;
-    }
-    setLoading(true);
-    setError(null);
-
-    // Prepare form data
-    const formData = new FormData();
-    formData.append("resume", file);
-    formData.append("job_role", jobRole);
-    formData.append("num_questions", numQuestions.toString());
-
-    try {
-      const response = await fetch("http://localhost:8000/api/parse-resume", {
-        method: "POST",
-        body: formData,
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        // Show backend error for empty/invalid PDF
-        setError(data.detail || "Failed to generate questions. Please upload a valid resume PDF.");
-        setQuestions([]);
-        return;
-      }
-      if (data.questions && Array.isArray(data.questions) && data.questions[0]?.startsWith("Failed to extract")) {
-        setError("Please upload a valid resume PDF with sufficient and relevant information.");
-        setQuestions([]);
-        return;
-      }
-      setQuestions(data.questions);
-    } catch (err) {
-      setError("Failed to generate questions. Please upload a valid resume PDF.");
-      setQuestions([]);
     } finally {
       setLoading(false);
     }
@@ -582,13 +539,29 @@ export function Questions({ questions: initialQuestions, onSubmit }: QuestionsPr
             </button>
           ) : (
             <button
-              onClick={handleSubmit}
-              className="px-5 py-2 bg-green-600 hover:bg-green-700 text-white rounded-full font-semibold shadow-md transition"
+              onClick={handleSubmitInterview}
+              disabled={loading}
+              className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-full font-semibold shadow-md transition disabled:opacity-50 flex items-center space-x-2 cursor-pointer"
             >
-              Submit Interview
+              {loading ? (
+                <>
+                  <svg className="animate-spin h-5 w-5 text-white mr-2 inline" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                  </svg>
+                  <span>Analyzing & Submitting...</span>
+                </>
+              ) : (
+                <span>Submit Interview</span>
+              )}
             </button>
           )}
         </div>
+        {submitError && (
+          <div className="mt-4 p-3 bg-red-50 border border-red-300 text-red-700 rounded-lg text-sm">
+            {submitError}
+          </div>
+        )}
         <div className="mt-6 flex items-center">
           <button
             onClick={handleMicAndAudioClick}

@@ -12,6 +12,7 @@ interface ResumeUploadProps {
 export function ResumeUpload({ setQuestions, setLoading, setError }: ResumeUploadProps) {
   const [file, setFile] = useState<File | null>(null);
   const [jobRole, setJobRole] = useState("");
+  const [jobDescription, setJobDescription] = useState("");
   const [fileError, setFileError] = useState<string | null>(null);
   const [jobRoleError, setJobRoleError] = useState<string | null>(null);
   const [numQuestions, setNumQuestions] = useState(5);
@@ -53,6 +54,12 @@ export function ResumeUpload({ setQuestions, setLoading, setError }: ResumeUploa
     formData.append("resume", file);
     formData.append("job_role", jobRole);
     formData.append("num_questions", numQuestions.toString());
+    if (jobDescription.trim()) {
+      formData.append("job_description", jobDescription.trim());
+      localStorage.setItem("jobDescription", jobDescription.trim());
+    } else {
+      localStorage.removeItem("jobDescription");
+    }
 
     try {
       const response = await fetch("http://localhost:8000/api/parse-resume", {
@@ -153,6 +160,22 @@ export function ResumeUpload({ setQuestions, setLoading, setError }: ResumeUploa
           }`}
         />
         {jobRoleError && <p className="text-red-600 mt-2 text-sm">{jobRoleError}</p>}
+      </div>
+      <div className="mb-6">
+        <div className="flex justify-between items-center mb-2">
+          <label className="block text-[#1a237e] font-medium" htmlFor="jobDescription">
+            Job Description
+          </label>
+          <span className="text-xs text-gray-500 font-normal">Optional — aligns questions with JD requirements</span>
+        </div>
+        <textarea
+          id="jobDescription"
+          value={jobDescription}
+          onChange={(e) => setJobDescription(e.target.value)}
+          placeholder="Paste key responsibilities, qualifications, or requirements from the job description here..."
+          rows={4}
+          className="w-full px-4 py-2 border border-[#3b82f6] rounded-md focus:outline-none focus:ring-2 focus:ring-[#3b82f6] transition text-sm text-gray-800 resize-y"
+        />
       </div>
       <motion.button
         whileHover={{ scale: 1.04 }}

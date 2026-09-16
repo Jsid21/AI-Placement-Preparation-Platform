@@ -1,7 +1,7 @@
 import os
 import logging
 import requests
-from typing import List
+from typing import List, Optional
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -11,14 +11,18 @@ logger = logging.getLogger(__name__)
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
-# Choose a model: "llama3-70b-8192", "llama3-8b-8192", "mixtral-8x7b-32768", "gemma-7b-it"
-# GROQ_MODEL = "llama3-70b-8192"
-GROQ_MODEL = "llama-3.3-70b-versatile"
+# Available active Groq models: "openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"
+GROQ_MODEL = "openai/gpt-oss-120b"
 
 
-async def generate_interview_questions(resume_text: str, job_role: str, num_questions: int = 10) -> List[str]:
+async def generate_interview_questions(
+    resume_text: str, 
+    job_role: str, 
+    num_questions: int = 10,
+    job_description: Optional[str] = None
+) -> List[str]:
     """
-    Generate interview questions based on the resume and job role using Groq API.
+    Generate interview questions based on the resume, job role, and optional job description using Groq API.
     """
     if not GROQ_API_KEY:
         logger.error("No Groq API key found in environment variables")
@@ -26,17 +30,20 @@ async def generate_interview_questions(resume_text: str, job_role: str, num_ques
 
     system_prompt = (
         "You are an AI interview assistant. Generate relevant technical and behavioral "
-        "interview questions based on the candidate's resume and the job role they are applying for. "
+        "interview questions based on the candidate's resume, the job role, and the job description (if provided). "
         "Focus on questions that assess their skills, experience, and fit for the position. "
         "Make the questions challenging but fair, and ensure they are specific to the candidate's background."
     )
 
+    jd_section = f"\n\nJob Description:\n{job_description.strip()}\n" if job_description and job_description.strip() else ""
+
     user_prompt = (
         f"Job Role: {job_role}\n\n"
-        f"Resume Content:\n{resume_text}\n\n"
+        f"Resume Content:\n{resume_text}"
+        f"{jd_section}\n\n"
         f"Generate exactly {num_questions} interview questions that would be appropriate for this candidate "
         f"applying to the {job_role} position. Include a mix of technical questions related to their "
-        f"skills and behavioral questions to assess their fit. Format each question on a new line with a number."
+        f"skills and behavioral questions to assess their fit against both the resume and job requirements. Format each question on a new line with a number."
     )
 
     payload = {
