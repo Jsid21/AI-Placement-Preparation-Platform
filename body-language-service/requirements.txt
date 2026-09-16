@@ -1,7 +1,8 @@
 opencv-python
-mediapipe
+mediapipe==0.10.14
 numpy
 deepface
+tensorflow
 tf-keras
 fastapi
 uvicorn

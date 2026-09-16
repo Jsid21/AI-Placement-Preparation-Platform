@@ -9,7 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "framer-motion": "^12.7.4",
+    "framer-motion": "^12.43.0",
     "html2pdf.js": "^0.10.3",
     "next": "15.3.1",
     "react": "^19.0.0",
@@ -28,5 +28,8 @@
     "postcss": "^8.4.29",
     "tailwindcss": "^3.3.3",
     "typescript": "^5"
+  },
+  "optionalDependencies": {
+    "@next/swc-win32-x64-msvc": "15.3.1"
   }
 }
